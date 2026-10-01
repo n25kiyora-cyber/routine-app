@@ -294,3 +294,9 @@ textarea { resize: none; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* 朝・夜のルーティーン */
+.cl-title { display: flex; justify-content: space-between; align-items: baseline; }
+.cl-title small { margin-left: 8px; font-size: 12px; opacity: 0.8; }
+.cl-count { font-size: 13px; font-weight: 600; color: var(--sub); }
+.cl-count.all { color: var(--c-green); }

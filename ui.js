@@ -71,6 +71,8 @@ function renderToday() {
     <ul class="group">
       <li><button class="row add" id="addtask"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>今日のタスクを追加</b></span></button></li>
     </ul>
+    ${checklist(p, "morning")}
+    ${checklist(p, "night")}
     <ul class="group">
       <li><button class="row" id="note"><span class="ic pencil">${ICON.pencil}</span><span class="txt"><b>${p.dd.note ? esc(p.dd.note) : "今日できたことを一行"}</b>${p.dd.note ? "<small>今日できたこと</small>" : ""}</span>${ICON.chevron}</button></li>
     </ul>
@@ -82,6 +84,17 @@ function renderToday() {
   $("#note").onclick = () => editText("今日できたこと", "小さなことでいい", p.dd.note, (v) => (p.dd.note = v));
   $("#sleep").onclick = () => sleepSheet();
   $("#addtask").onclick = () => taskSheet(p);
+  document.querySelectorAll("[data-cl-check]").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    const id = b.dataset.clCheck;
+    p.dd.chk[id] = !p.dd.chk[id];
+    save();
+    b.classList.toggle("on", !!p.dd.chk[id]);
+    b.closest(".row")?.classList.toggle("done", !!p.dd.chk[id]);
+    setTimeout(render, 380);
+  }));
+  document.querySelectorAll("[data-cl-edit]").forEach((el) => (el.onclick = () => { const [k, id] = el.dataset.clEdit.split(":"); checklistSheet(k, id); }));
+  document.querySelectorAll("[data-cl-add]").forEach((el) => (el.onclick = () => checklistSheet(el.dataset.clAdd)));
   enableDrag(p);
   document.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => { mode = b.dataset.mode; render(); }));
   document.querySelectorAll("[data-check]").forEach((b) => (b.onclick = (e) => {
@@ -207,6 +220,67 @@ function itemSheet(p, id) {
     if (act === "skip" && i.task && !confirmTwice(`del-${id}`)) return;
     applyAction(p, id, act);
   });
+}
+
+// 朝・夜のルーティーン(毎日同じ項目を、日ごとにチェックしていく)
+const CL = {
+  morning: { title: "モーニングルーティン", color: "var(--c-orange)", chips: ["水を飲む", "カーテンを開ける", "ストレッチ", "瞑想", "朝の日記", "散歩", "朝食"] },
+  night: { title: "ナイトルーティン", color: "var(--c-indigo)", chips: ["明日の準備", "日記", "ストレッチ", "スマホを置く", "読書", "歯みがき", "入浴"] },
+};
+function checklist(p, kind) {
+  const c = CL[kind];
+  const items = state.checklists[kind];
+  const done = items.filter((i) => p.dd.chk[i.id]).length;
+  const sub = kind === "morning" ? `起床 ${clock(p.wake)}〜` : `寝る準備 ${clock(p.windDown % 1440)}〜`;
+  const all = items.length > 0 && done === items.length;
+  return `<p class="sec cl-title"><span>${c.title}<small>${sub}</small></span><span class="cl-count ${all ? "all" : ""}">${items.length ? (all ? "✓ 完了" : `${done}/${items.length}`) : ""}</span></p>
+    <ul class="group">${items.map((i) => `<li class="row item ${p.dd.chk[i.id] ? "done" : ""}" style="--rc:${c.color}" data-cl-edit="${kind}:${i.id}">
+        <button class="check ${p.dd.chk[i.id] ? "on" : ""}" data-cl-check="${i.id}" aria-label="${p.dd.chk[i.id] ? "未完了に戻す" : "できた"}"></button>
+        <span class="txt"><b>${esc(i.name)}</b></span>${ICON.chevron}</li>`).join("")}
+      <li><button class="row add" data-cl-add="${kind}"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>${c.title}に追加</b></span></button></li>
+    </ul>`;
+}
+function checklistSheet(kind, id) {
+  const c = CL[kind];
+  const list = state.checklists[kind];
+  const cur = id ? list.find((x) => x.id === id) : null;
+  const draw = () => {
+    const have = new Set(list.map((x) => x.name));
+    const idx = cur ? list.indexOf(cur) : -1;
+    openSheet(sheetHead(cur ? "項目を編集" : `${c.title}に追加`, cur ? "キャンセル" : "閉じる", cur ? "保存" : "追加") + `
+      <input class="name-input" id="clname" placeholder="やること（例：水を飲む）" maxlength="40">
+      ${cur ? `<ul class="group in-sheet">
+        ${idx > 0 ? `<li><button class="row act" data-act="up"><b>1つ上へ</b></button></li>` : ""}
+        ${idx < list.length - 1 ? `<li><button class="row act" data-act="down"><b>1つ下へ</b></button></li>` : ""}
+        <li><button class="row act red" data-act="del"><b>この項目を削除</b></button></li></ul>`
+      : `<p class="sheet-label">よく使うもの（押すとすぐ追加）</p><div class="chips">${c.chips.filter((n) => !have.has(n)).map((n) => `<button class="chip" data-chip="${esc(n)}">${esc(n)}</button>`).join("")}</div>
+         <p class="sheet-note">毎日同じ項目が並び、日ごとにチェックしていきます。</p>`}`, (act) => {
+      const name = $("#clname").value.trim();
+      if (act === "up" || act === "down") {
+        const j = idx + (act === "up" ? -1 : 1);
+        [list[idx], list[j]] = [list[j], list[idx]];
+        save(); render(); return draw();
+      }
+      if (act === "del") {
+        if (!confirmTwice(`cl-${cur.id}`)) return;
+        list.splice(idx, 1); save(); closeSheet(); return render();
+      }
+      if (act === "right") {
+        if (name) {
+          if (cur) cur.name = name; else list.push({ id: `c${Date.now()}`, name });
+          save();
+        } else if (!cur) return notice("やることを入れてください");
+      }
+      closeSheet();
+      render();
+    });
+    if (cur) $("#clname").value = cur.name;
+    document.querySelectorAll("#sheet [data-chip]").forEach((b) => (b.onclick = () => {
+      list.push({ id: `c${Date.now()}${list.length}`, name: b.dataset.chip });
+      save(); render(); draw();
+    }));
+  };
+  draw();
 }
 
 // 今日だけのタスクを追加・編集(名前・時刻・長さ)
@@ -840,6 +914,7 @@ function onboarding(step = 1) {
 // ---- 起動 ----
 if (DEV && ["week", "settings"].includes(location.hash.slice(1))) tab = location.hash.slice(1);
 if (NOSAVE && params.get("demo") === "conflict") state.settings.routines[0].slots[4] = s("22:30", 90);
+if (NOSAVE && params.get("demo") === "cl") { state.checklists.morning = [{ id: "m1", name: "白湯を飲む" }, { id: "m2", name: "ストレッチ" }, { id: "m3", name: "瞑想" }]; state.checklists.night = [{ id: "n1", name: "明日の準備" }, { id: "n2", name: "日記" }]; const d0 = dayData(dayKey(logicalNow().date)); d0.chk.m1 = true; d0.chk.m2 = true; render(); }
 if (NOSAVE && params.get("demo") === "carry") dayData(dayKey(logicalNow().date)).carry.push({ id: "study", name: "AI・プログラミング", min: 30 });
 if (NOSAVE && params.get("demo") !== "onboarding") state.onboarded = true;
 if (NOSAVE && params.get("mode") === "time") mode = "time";

@@ -121,13 +121,16 @@ function sanitize(d) {
       carry: Array.isArray(day.carry) ? day.carry.filter((c) => c && typeof c.name === "string" && c.min > 0 && c.min <= 720) : [],
       // 今日だけの単発タスク {id,name,start:"HH:MM",min} と、ルーティーンの時刻の変更 {id:"HH:MM"}
       tasks: Array.isArray(day.tasks) ? day.tasks.filter((t) => t && typeof t.id === "string" && typeof t.name === "string" && validHM(t.start) && Number.isFinite(t.min) && t.min > 0 && t.min <= 720) : [],
+      chk: obj(day.chk), // 朝・夜のルーティーンのチェック {項目id: true}
       moved: Object.fromEntries(Object.entries(obj(day.moved)).filter(([, v]) => validHM(v))),
     };
   }
+  const cl = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x.id === "string" && typeof x.name === "string" && x.name.trim()).slice(0, 30).map((x) => ({ id: x.id, name: x.name.slice(0, 40) })) : []);
+  const checklists = { morning: cl(obj(d.checklists).morning), night: cl(obj(d.checklists).night) };
   const reviews = {};
   for (const [k, r] of Object.entries(obj(d.reviews))) if (r && typeof r === "object") reviews[k] = r;
   const cal = d.cal && typeof d.cal.url === "string" && GAS_URL.test(d.cal.url) && typeof d.cal.key === "string" ? { url: d.cal.url, key: d.cal.key } : undefined;
-  return { settings: d.settings, days, reviews, onboarded: d.onboarded === true, cal, calPushed: typeof d.calPushed === "string" ? d.calPushed : "",
+  return { settings: d.settings, days, reviews, checklists, onboarded: d.onboarded === true, cal, calPushed: typeof d.calPushed === "string" ? d.calPushed : "",
     settingsRev: typeof d.settingsRev === "number" && d.settingsRev > 0 ? d.settingsRev : Date.now() };
 }
 function readStore(key) {
@@ -152,7 +155,7 @@ function load() {
     if (!NOSAVE) try { localStorage.setItem(`${KEY}-broken-${Date.now()}`, raw); } catch {} // 読めないデータは消さずに退避
     setTimeout(() => notice("保存データが読めなかったため、別の場所に退避しました"), 500);
   }
-  const fresh = { settings: defaultSettings(), days: {}, reviews: {} };
+  const fresh = { settings: defaultSettings(), days: {}, reviews: {}, checklists: { morning: [], night: [] } };
   // 前の版(v1)のデータがあれば引き継ぐ
   try {
     const old = JSON.parse(readStore(OLD_KEY) || "null");
@@ -189,7 +192,7 @@ const S = () => state.settings;
 function dayData(key) {
   if (!state.days[key]) state.days[key] = {};
   const d = state.days[key];
-  if (!d.done) d.done = {}; if (!d.skip) d.skip = {}; if (!d.shorten) d.shorten = {}; if (!d.carry) d.carry = []; if (!d.tasks) d.tasks = []; if (!d.moved) d.moved = {};
+  if (!d.done) d.done = {}; if (!d.skip) d.skip = {}; if (!d.shorten) d.shorten = {}; if (!d.carry) d.carry = []; if (!d.tasks) d.tasks = []; if (!d.moved) d.moved = {}; if (!d.chk) d.chk = {};
   return d;
 }
 
