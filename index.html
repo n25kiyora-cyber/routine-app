@@ -3,56 +3,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1f6feb">
+  <meta name="theme-color" content="#F5F2EB">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="ルーティーン">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="手帳">
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
-  <title>ルーティーン</title>
+  <title>手帳</title>
 </head>
 <body>
-  <header>
-    <h1>今日</h1>
-    <p id="date"></p>
-  </header>
+  <!-- 画面の中身は app.js が描く(今日 / 週 / 設定) -->
+  <main id="view"></main>
 
-  <main>
-    <!-- ① 今日の3つ：必須1つ＋できれば2つ -->
-    <section class="card">
-      <h2>今日の3つ</h2>
-      <p class="hint">必須は1つだけ。まず「2分でできる一歩」から。</p>
-      <ol id="three"></ol>
-    </section>
+  <nav class="tabs" aria-label="画面の切り替え">
+    <button data-tab="today">今日</button>
+    <button data-tab="week">週</button>
+    <button data-tab="settings">設定</button>
+  </nav>
 
-    <!-- ② 毎日のルーティーン：連続日数ではなく「今週できた日数」 -->
-    <section class="card">
-      <h2>毎日のルーティーン</h2>
-      <ul id="routines"></ul>
-    </section>
+  <!-- 下から出てくる小さな操作パネル -->
+  <div id="sheet-backdrop" hidden></div>
+  <section id="sheet" hidden role="dialog" aria-modal="true"></section>
 
-    <!-- ③ 週の振り返り -->
-    <section class="card">
-      <h2>週の振り返り</h2>
-      <p class="hint" id="focus"></p>
-      <label>できたこと<textarea id="r-done" rows="2"></textarea></label>
-      <label>できなかった理由<textarea id="r-why" rows="2"></textarea></label>
-      <label>来週変えること（1つだけ）<input id="r-next"></label>
-      <p class="hint">入力した内容は自動で保存されます。</p>
-    </section>
-
-    <!-- ④ 書き出し・復元：データが消えないように -->
-    <section class="card">
-      <h2>データ</h2>
-      <p class="hint">データはこのスマホの中だけに保存されます。週に1回は書き出しておくと安心です。</p>
-      <div class="row">
-        <button id="export">書き出す</button>
-        <label class="button">復元する<input type="file" id="import" accept="application/json" hidden></label>
-      </div>
-    </section>
-  </main>
-
-  <div id="notice" hidden></div>
+  <div id="notice" hidden role="status"></div>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // オフラインでも開けるように、アプリのファイルをスマホに保存しておく。
 // ファイルを更新したら VERSION の数字を上げる。
-const VERSION = "v2";
-const FILES = ["./", "index.html", "style.css", "app.js", "manifest.json", "icon.svg"];
+const VERSION = "v8";
+const FILES = ["./", "index.html", "style.css", "app.js", "manifest.json", "icon.svg", "icon-180.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)));
