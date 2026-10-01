@@ -307,3 +307,11 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .chain .why { font-size: 12px; color: var(--sub); margin: 0 0 12px 2px; }
 .setup-banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--rule); border-radius: 8px; font-size: 13px; color: var(--sub); }
 .setup-banner span { color: var(--accent); white-space: nowrap; }
+
+/* ---- Googleカレンダーの予定 ---- */
+:root { --cal: #8C6A3A; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="day"]) { --cal: #CDAE78; } }
+:root[data-theme="night"] { --cal: #CDAE78; }
+.blk.cal { background: transparent; color: var(--cal); border: 1px dashed var(--cal); font-size: 14px; }
+.blk.cal .t, .blk.cal .d { color: var(--cal); opacity: 0.85; }
+.week ul li.cal { color: var(--cal); }

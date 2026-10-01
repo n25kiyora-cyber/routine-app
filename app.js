@@ -7,6 +7,7 @@ const PX_PER_HOUR = 64; // 時間軸の縦の長さ: 1時間 = 64px
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
 const DOW_LONG = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"];
 const ORDER = [1, 2, 3, 4, 5, 6, 0]; // 月曜はじまりの並び
+const GAS_URL = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/; // Google Apps Script の住所の形
 
 // ---- はじめの設定(あとで設定画面から変えられる) ----
 const weekday = (start, end) => ({ start, end });
@@ -118,7 +119,9 @@ function sanitize(d) {
   }
   const reviews = {};
   for (const [k, r] of Object.entries(obj(d.reviews))) if (r && typeof r === "object") reviews[k] = r;
-  return { settings: d.settings, days, reviews, onboarded: d.onboarded === true };
+  const cal = d.cal && typeof d.cal.url === "string" && GAS_URL.test(d.cal.url) && typeof d.cal.key === "string" ? { url: d.cal.url, key: d.cal.key } : undefined;
+  return { settings: d.settings, days, reviews, onboarded: d.onboarded === true, cal, calPushed: typeof d.calPushed === "string" ? d.calPushed : "",
+    settingsRev: typeof d.settingsRev === "number" && d.settingsRev > 0 ? d.settingsRev : Date.now() };
 }
 function readStore(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -155,10 +158,16 @@ function load() {
   } catch {}
   return fresh;
 }
+let lastSettingsJson = null; // 設定が変わったかを見分ける(変わった時刻を版の番号にする)。起動時の設定で初期化する
 function save() {
   if (NOSAVE) return true; // 確認用の表示では保存しない
+  const js = JSON.stringify(state.settings);
+  if (lastSettingsJson !== null && js !== lastSettingsJson) state.settingsRev = Date.now();
+  lastSettingsJson = js;
+  if (!state.settingsRev) state.settingsRev = Date.now();
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
+    if (state.cal && JSON.stringify(state.settings) !== state.calPushed) schedulePush(); // 設定が変わったらカレンダーへ
     return true;
   } catch {
     notice("保存に失敗しました");
@@ -215,6 +224,17 @@ function planOf(date) {
     if (start < wake - 120) start += 1440; // 0時過ぎの予定はその夜のもの
     add({ id: r.id, kind: "routine", name: r.name, start, end: start + min, full: slot.min });
   }
+  // Googleカレンダーの予定(この日の起床2時間前〜翌日の起床2時間前に始まるもの)
+  const dayStart = date.getTime();
+  const lo = wake - 120, hi = wakeOf(addDays(date, 1)) + 1440 - 120;
+  calEvents.forEach((ev, i) => {
+    const s0 = parseIso(ev.start), e0 = parseIso(ev.end);
+    if (s0 === null || e0 === null) return;
+    const start = Math.round((s0 - dayStart) / 60000), end = Math.round((e0 - dayStart) / 60000);
+    if (start < lo || start >= hi || end <= start) return;
+    add({ id: `cal-${i}`, kind: "cal", name: ev.title, start, end });
+  });
+
   // 前の日から持ち越した予定: 夜の空いている時間に置く
   dd.carry.forEach((c, ci) => {
     const id = `carry-${ci}`;
@@ -366,7 +386,7 @@ function nextCard(p, now) {
   const endWord = (i) => (i.id === "prep" ? `${clock(i.end)}に出発` : i.id === "commute-am" ? `${clock(i.end)}に始業` : `${clock(i.end)}まで`);
   const cur = [...acts].reverse().find((i) => i.start <= now && now < i.end);
   if (cur) {
-    const after = acts.find((i) => i.start >= cur.end && (i.kind === "routine" || i.kind === "rest"));
+    const after = acts.find((i) => i.start >= cur.end && (i.kind === "routine" || i.kind === "rest" || i.kind === "cal"));
     return `<button class="next doing" ${cur.kind === "routine" || cur.kind === "rest" ? `data-item="${cur.id}"` : ""}>
       <span class="label">いま</span>
       <span class="what">${esc(cur.name)}</span>
@@ -457,7 +477,7 @@ function timeline(p, now) {
     const label = i.kind === "work" ? `${clock(i.start)}–${clock(i.end)}` : clock(i.start);
     const len = i.kind === "work" ? dur(i.end - i.start) : clickable ? dur(i.end - i.start) : "";
     return `<div class="${cls}" style="top:${top}px;height:${h}px" ${clickable ? `data-item="${i.id}" role="button" tabindex="0"` : ""}>
-      <span class="t">${label}</span><span class="n">${i.done ? `<i class="ok">✓</i>` : ""}${esc(i.name)}${i.carried ? `<i class="tag">持ち越し</i>` : ""}</span>
+      <span class="t">${label}</span><span class="n">${i.done ? `<i class="ok">✓</i>` : ""}${esc(i.name)}${i.carried ? `<i class="tag">持ち越し</i>` : ""}</span>${i.kind === "cal" ? `<span class="d">${clock(i.end)}まで</span>` : ""}
       ${len ? `<span class="d">${len}</span>` : ""}${extra}
     </div>`;
   }).join("");
@@ -563,13 +583,13 @@ function renderWeek() {
       const p = planOf(d);
       const today = dayKey(d) === dayKey(ln.date);
       const past = d < ln.date;
-      const rs = p.items.filter((i) => i.kind === "routine");
+      const rs = p.items.filter((i) => i.kind === "routine" || i.kind === "cal");
       return `<li class="${today ? "today" : ""} ${past ? "past" : ""}" data-day="${dayKey(d)}">
         <div class="wd"><span class="dow">${DOW[d.getDay()]}</span><span class="dn">${d.getDate()}</span></div>
         <div class="body">
           <p class="sleep-line">${clock(p.wake)} 起床　·　${clock(p.bed)} 就寝</p>
           <p class="work-line">${p.work ? `勤務 ${clock(toMin(p.work.start))}–${clock(toMin(p.work.end))}` : "休み"}</p>
-          <ul>${rs.map((r) => `<li class="${r.done ? "done" : ""}"><span class="t">${clock(r.start)}</span>${esc(r.name)}<span class="d">${dur(r.end - r.start)}</span></li>`).join("") || `<li class="none">予定なし</li>`}</ul>
+          <ul>${rs.map((r) => `<li class="${r.done ? "done" : ""} ${r.kind === "cal" ? "cal" : ""}"><span class="t">${clock(r.start)}</span>${esc(r.name)}<span class="d">${dur(r.end - r.start)}</span></li>`).join("") || `<li class="none">予定なし</li>`}</ul>
           ${p.conflicts.length ? `<p class="warn">はみ出しあり</p>` : ""}
         </div></li>`;
     }).join("")}</ol>
@@ -661,6 +681,14 @@ function renderSettings() {
       <p class="note">起床 ＝ 始業 − 通勤 − 支度　／　就寝 ＝ 翌朝の起床 − 睡眠</p>
     </section>
 
+    <section class="set"><h3>Googleカレンダー</h3>
+      <p class="note">GAS の住所と合言葉を入れると、ルーティーン・寝る準備・就寝が「手帳」カレンダーに入り、あなたの予定がこの画面に出ます。合言葉は人に見せないでください。</p>
+      <div class="row"><input id="cal-url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></div>
+      <div class="row"><input id="cal-key" type="password" autocomplete="off" placeholder="合言葉"></div>
+      <div class="row two"><button id="cal-test">${state.cal ? "つなぎ直す" : "つなぐ"}</button>${state.cal ? `<button id="cal-off">連携をやめる</button>` : ""}</div>
+      <p class="note" id="cal-status">${state.cal ? (calState.error ? `前回の取得に失敗：${esc(calErrorText(calState.error))}` : calState.at ? `予定を取得：${new Date(calState.at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}` : "つながっています") : "まだつながっていません"}</p>
+    </section>
+
     <section class="set"><h3>表示</h3>
       <div class="row"><span class="lbl">夜の配色</span>
         <select data-str="night">
@@ -700,6 +728,36 @@ function renderSettings() {
   };
   $("#export").onclick = exportData;
   $("#import").onchange = importData;
+  $("#cal-url").value = state.cal ? state.cal.url : "";
+  $("#cal-key").value = state.cal ? state.cal.key : "";
+  $("#cal-test").onclick = async () => {
+    const url = $("#cal-url").value.trim(), key = $("#cal-key").value.trim();
+    if (!GAS_URL.test(url)) return notice("住所は https://script.google.com/macros/s/…/exec の形です");
+    if (key.length < 20) return notice("合言葉を入れてください");
+    const before = state.cal;
+    state.cal = { url, key };
+    $("#cal-status").textContent = "確かめています…";
+    try {
+      await gas("ping");
+      state.calPushed = "";
+      save(); // 設定をカレンダーへ送る
+      await refreshEvents();
+      notice("つながりました");
+      renderSettings();
+    } catch (e) {
+      state.cal = before;
+      $("#cal-status").textContent = calErrorText(e.message);
+    }
+  };
+  $("#cal-off")?.addEventListener("click", () => {
+    if (!confirmTwice("cal-off")) return;
+    state.cal = undefined;
+    calEvents = [];
+    try { localStorage.removeItem(CAL_CACHE); } catch {}
+    save();
+    notice("連携をやめました（「手帳」カレンダーの予定は残ります）");
+    renderSettings();
+  });
 }
 
 // 曜日を選ぶチップ
@@ -881,10 +939,82 @@ function onboarding(step = 1) {
   document.querySelectorAll("#sheet [data-sleep]").forEach((b) => (b.onclick = () => { st.sleepHours = Number(b.dataset.sleep); onboarding(3); }));
 }
 
+// ---- Googleカレンダー連携(Google Apps Script 経由) ----
+// 時刻の文字列(例: 2026-10-01T21:00+09:00)を、時差も含めて正しく読む
+function parseIso(str) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(Z|([+-])(\d{2}):?(\d{2}))$/.exec(String(str));
+  if (!m) return null;
+  const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  const off = m[7] === "Z" ? 0 : (m[8] === "-" ? -1 : 1) * (+m[9] * 60 + +m[10]);
+  return utc - off * 60000;
+}
+const CAL_CACHE = "routine-app-calcache";
+let calEvents = [];
+let calState = { at: 0, error: "" };
+try {
+  const c = JSON.parse(readStore(CAL_CACHE) || "null");
+  if (c && Array.isArray(c.events)) { calEvents = c.events; calState.at = c.at || 0; }
+} catch {}
+if (NOSAVE && params.get("demo") === "cal") {
+  const t = (h, m) => { const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString().replace(/\.\d{3}Z$/, "Z"); };
+  calEvents = [{ title: "チーム定例", start: t(10, 0), end: t(11, 0) }, { title: "友人と食事", start: t(19, 30), end: t(21, 30) }];
+}
+
+async function gas(action, extra) {
+  const c = state.cal;
+  if (!c || !c.url || !c.key) throw new Error("not_configured");
+  const res = await fetch(c.url, { method: "POST", body: JSON.stringify({ key: c.key, action, ...extra }) }); // 本文は文字列(プリフライトなし)
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || "error");
+  return j;
+}
+async function refreshEvents() {
+  if (!state.cal || NOSAVE) return;
+  try {
+    const j = await gas("events", { from: dayKey(addDays(logicalNow().date, -1)), days: 9 });
+    calEvents = Array.isArray(j.events) ? j.events : [];
+    calState = { at: Date.now(), error: "" };
+    try { localStorage.setItem(CAL_CACHE, JSON.stringify({ at: calState.at, events: calEvents })); } catch {}
+    if (!busy()) render();
+  } catch (e) {
+    calState.error = e.message;
+  }
+}
+let pushTimer = null;
+let pushing = false, pushAgain = false; // 送信は1つずつ。送信中に変わったら、終わってからもう一度
+function schedulePush() {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushSettings, 1500);
+}
+async function pushSettings() {
+  if (!state.cal || NOSAVE) return;
+  if (pushing) { pushAgain = true; return; }
+  pushing = true;
+  const snapshot = JSON.stringify(state.settings);
+  try {
+    const j = await gas("push", { settings: JSON.parse(snapshot), rev: state.settingsRev });
+    state.calPushed = snapshot;
+    localStorage.setItem(KEY, JSON.stringify(state));
+    const r = j.result || {};
+    notice(`カレンダーに反映しました（追加${r.created || 0}・変更${r.updated || 0}・削除${r.deleted || 0}）`);
+  } catch (e) {
+    if (e.message === "busy") { notice("カレンダーが混み合っています。少しあとでもう一度試します"); setTimeout(schedulePush, 20000); }
+    else if (e.message !== "stale") notice("カレンダーへの反映に失敗しました");
+  } finally {
+    pushing = false;
+    if (pushAgain) { pushAgain = false; if (state.cal) schedulePush(); } // 失敗しただけなら繰り返さない(次に設定を変えたときに送る)
+  }
+}
+function calErrorText(code) {
+  return { unauthorized: "合言葉が違います", not_configured: "住所と合言葉を入れてください", bad_settings: "設定の形がGAS側で受け付けられませんでした" }[code]
+    || "つながりませんでした（住所を確かめてください）";
+}
+
 // ---- 書き出し・復元 ----
 async function exportData() {
   const name = `techo-backup-${dayKey(new Date())}.json`;
-  const file = new File([JSON.stringify(state, null, 2)], name, { type: "application/json" });
+  const copy = { ...state, cal: state.cal ? { url: state.cal.url, key: "" } : undefined }; // 合言葉は書き出さない
+  const file = new File([JSON.stringify(copy, null, 2)], name, { type: "application/json" });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: "手帳のバックアップ" });
@@ -906,6 +1036,7 @@ async function importData(e) {
     const d = JSON.parse(await file.text());
     if (!valid(d)) throw 0;
     const next = sanitize(d);
+    if (state.cal && (!next.cal || !next.cal.key)) next.cal = state.cal; // 合言葉は今の端末のものを使う
     if (!NOSAVE) {
       localStorage.setItem(`${KEY}-before-restore`, JSON.stringify(state)); // 前のデータを退避
       localStorage.setItem(KEY, JSON.stringify(next)); // 先に保存できるか確かめてから切り替える
@@ -928,6 +1059,11 @@ if (!state.onboarded && !onbSkipped) onboarding(NOSAVE ? Number(params.get("step
 if (NOSAVE && params.get("demo") === "work") workSheet();
 if (NOSAVE && params.get("demo") === "routine") routineSheet(0);
 save();
+// カレンダーの予定: 起動時・アプリに戻ったとき・15分ごとに取り直す
+refreshEvents();
+setInterval(refreshEvents, 15 * 60000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshEvents(); });
+
 // 1分ごとに「いま」の線と次の予定を更新。アプリに戻ってきたときも更新
 setInterval(() => { if (tab === "today" && !busy()) render(); }, 60000);
 const busy = () => !$("#sheet").hidden || document.activeElement?.matches("textarea,input,select");
