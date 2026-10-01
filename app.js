@@ -105,6 +105,9 @@ function repair(d) {
   return sanitize({ ...d, settings: st });
 }
 
+const validHM = (v) => typeof v === "string" && /^\d{1,2}:\d{2}$/.test(v) && +v.split(":")[0] < 24 && +v.split(":")[1] < 60;
+const hm2 = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(((m % 60) + 60) % 60).padStart(2, "0")}`; // time入力用の「09:00」形式
+
 // 1日ごとの記録を正しい形にそろえる(壊れた日は捨てる)
 function sanitize(d) {
   const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
@@ -116,6 +119,9 @@ function sanitize(d) {
       note: typeof day.note === "string" ? day.note : "",
       done: obj(day.done), skip: obj(day.skip), shorten: obj(day.shorten),
       carry: Array.isArray(day.carry) ? day.carry.filter((c) => c && typeof c.name === "string" && c.min > 0 && c.min <= 720) : [],
+      // 今日だけの単発タスク {id,name,start:"HH:MM",min} と、ルーティーンの時刻の変更 {id:"HH:MM"}
+      tasks: Array.isArray(day.tasks) ? day.tasks.filter((t) => t && typeof t.id === "string" && typeof t.name === "string" && validHM(t.start) && Number.isFinite(t.min) && t.min > 0 && t.min <= 720) : [],
+      moved: Object.fromEntries(Object.entries(obj(day.moved)).filter(([, v]) => validHM(v))),
     };
   }
   const reviews = {};
@@ -183,7 +189,7 @@ const S = () => state.settings;
 function dayData(key) {
   if (!state.days[key]) state.days[key] = {};
   const d = state.days[key];
-  if (!d.done) d.done = {}; if (!d.skip) d.skip = {}; if (!d.shorten) d.shorten = {}; if (!d.carry) d.carry = [];
+  if (!d.done) d.done = {}; if (!d.skip) d.skip = {}; if (!d.shorten) d.shorten = {}; if (!d.carry) d.carry = []; if (!d.tasks) d.tasks = []; if (!d.moved) d.moved = {};
   return d;
 }
 
@@ -224,9 +230,17 @@ function planOf(date) {
     const slot = r.slots[dow];
     if (!slot || dd.skip[r.id]) continue;
     const min = Math.max(5, slot.min - (dd.shorten[r.id] || 0));
-    let start = toMin(slot.start);
+    let start = toMin(dd.moved[r.id] || slot.start);
     if (start < wake - 120) start += 1440; // 0時過ぎの予定はその夜のもの
-    add({ id: r.id, kind: "routine", name: r.name, start, end: start + min, full: slot.min });
+    add({ id: r.id, kind: "routine", name: r.name, start, end: start + min, full: slot.min, moved: !!dd.moved[r.id] });
+  }
+  // 今日だけの単発タスク
+  for (const t of dd.tasks) {
+    if (dd.skip[t.id]) continue;
+    const min = Math.max(5, t.min - (dd.shorten[t.id] || 0));
+    let start = toMin(t.start);
+    if (start < wake - 120) start += 1440;
+    add({ id: t.id, kind: "routine", task: true, name: t.name, start, end: start + min, full: t.min });
   }
   // Googleカレンダーの予定(この日の起床2時間前〜翌日の起床2時間前に始まるもの)
   const dayStart = date.getTime();
@@ -250,7 +264,8 @@ function planOf(date) {
     for (const b of busy) if (b.end > start && b.start < start + min) start = b.end;
     // 寝る準備までに入らなければ、寝る準備の直前に置く(はみ出しとして調整を促す)
     if (start + min > windDown) start = Math.max(earliest, windDown - min);
-    add({ id, kind: "routine", name: c.name, start, end: start + min, carried: true, src: c.id });
+    if (dd.moved[id]) { start = toMin(dd.moved[id]); if (start < wake - 120) start += 1440; }
+    add({ id, kind: "routine", name: c.name, start, end: start + min, carried: true, src: c.id, moved: !!dd.moved[id] });
   });
   add({ id: "winddown", kind: "rest", name: "寝る準備", start: windDown, end: bed });
   add({ id: "sleep", kind: "sleep", name: "睡眠", start: bed, end: bed + Math.round(st.sleepHours * 60) });

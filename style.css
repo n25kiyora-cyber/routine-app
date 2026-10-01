@@ -180,6 +180,8 @@ svg .fill { fill: currentColor; stroke: none; }
 .blk.done { opacity: 0.45; }
 .blk.done b { text-decoration: line-through; }
 .blk.stacked { z-index: 1; }
+.blk[data-drag] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.blk.dragging { z-index: 6; opacity: 0.92; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25); transform: scale(1.02); transition: none; }
 .blk.sleepb { background: linear-gradient(color-mix(in srgb, var(--c-indigo) 18%, var(--card)), transparent); border-left-color: var(--c-indigo); color: var(--c-indigo); align-items: flex-start; padding-top: 6px; }
 .blk .fold { margin-left: auto; font-size: 13px; color: var(--blue); }
 .nowline { position: absolute; left: -5px; right: 0; border-top: 1.5px solid var(--c-red); z-index: 2; pointer-events: none; }

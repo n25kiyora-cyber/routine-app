@@ -67,7 +67,10 @@ function renderToday() {
     ${focus ? `<p class="hint">今週変えること：${esc(focus)}</p>` : ""}
     ${conflictCard(p)}
     <div class="seg" role="tablist"><button data-mode="list" class="${mode === "list" ? "on" : ""}">リスト</button><button data-mode="time" class="${mode === "time" ? "on" : ""}">時間で見る</button></div>
-    ${mode === "list" ? `<ul class="group list">${listRows(p, now)}</ul>` : `<section class="card timeline">${timeline(p, now)}</section>`}
+    ${mode === "list" ? `<ul class="group list">${listRows(p, now)}</ul>` : `<section class="card timeline">${timeline(p, now)}</section>${mode === "time" ? `<p class="hint">予定を長押ししてドラッグすると、時刻を動かせます</p>` : ""}`}
+    <ul class="group">
+      <li><button class="row add" id="addtask"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>今日のタスクを追加</b></span></button></li>
+    </ul>
     <ul class="group">
       <li><button class="row" id="note"><span class="ic pencil">${ICON.pencil}</span><span class="txt"><b>${p.dd.note ? esc(p.dd.note) : "今日できたことを一行"}</b>${p.dd.note ? "<small>今日できたこと</small>" : ""}</span>${ICON.chevron}</button></li>
     </ul>
@@ -78,6 +81,8 @@ function renderToday() {
   $("#must").onclick = () => editText("今日いちばん大事なこと", "これだけはやる、を1つ", p.dd.must, (v) => (p.dd.must = v));
   $("#note").onclick = () => editText("今日できたこと", "小さなことでいい", p.dd.note, (v) => (p.dd.note = v));
   $("#sleep").onclick = () => sleepSheet();
+  $("#addtask").onclick = () => taskSheet(p);
+  enableDrag(p);
   document.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => { mode = b.dataset.mode; render(); }));
   document.querySelectorAll("[data-check]").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
@@ -88,7 +93,7 @@ function renderToday() {
     b.classList.toggle("on", !!p.dd.done[id]);
     setTimeout(render, 380); // チェックの動きを見せてから並べ直す
   }));
-  document.querySelectorAll("[data-item]").forEach((el) => (el.onclick = () => itemSheet(p, el.dataset.item)));
+  document.querySelectorAll("[data-item]").forEach((el) => (el.onclick = () => { if (Date.now() - dragEndedAt < 400) return; itemSheet(p, el.dataset.item); }));
   $("#work-toggle")?.addEventListener("click", (e) => { e.stopPropagation(); workOpen = !workOpen; render(); });
   document.querySelectorAll("[data-fix]").forEach((el) => (el.onclick = () => {
     const [act, id] = el.dataset.fix.split(":");
@@ -99,8 +104,8 @@ function renderToday() {
 // 予定の色(ルーティーンは自分の色、寝る準備は藍、カレンダーはGoogleの青)
 function tint(i) {
   if (i.kind === "routine") {
-    const r = routineById(i.src || i.id);
-    return `var(--c-${colorOf(r, S().routines.indexOf(r))})`;
+    const r = i.task ? null : routineById(i.src || i.id);
+    return r ? `var(--c-${colorOf(r, S().routines.indexOf(r))})` : "var(--c-teal)";
   }
   if (i.kind === "rest") return "var(--c-indigo)";
   if (i.kind === "cal") return "var(--google)";
@@ -191,9 +196,71 @@ function itemSheet(p, id) {
     <p class="sheet-meta">${clock(i.start)}–${clock(i.end)}（${dur(i.end - i.start)}）</p>
     <ul class="group in-sheet">
       <li><button class="row act" data-act="done"><span class="check ${done ? "on" : ""}" style="--rc:${tint(i)}"></span><b>${done ? "未完了に戻す" : "できた"}</b></button></li>
+      ${i.kind === "routine" ? `<li><button class="row act" data-act="move"><b>時間を変える</b><span class="val">${clock(i.start)}</span></button></li>` : ""}
+      ${i.task ? `<li><button class="row act" data-act="edit"><b>名前・長さを編集</b></button></li>` : ""}
       ${canShorten ? `<li><button class="row act" data-act="shorten"><b>15分短くする</b></button></li>` : ""}
-      ${i.kind === "routine" ? `<li><button class="row act" data-act="carry"><b>明日に回す</b></button></li><li><button class="row act red" data-act="skip"><b>今日は見送る</b></button></li>` : ""}
-    </ul>`, (act) => (act === "right" ? closeSheet() : applyAction(p, id, act)));
+      ${i.kind === "routine" ? `<li><button class="row act" data-act="carry"><b>明日に回す</b></button></li><li><button class="row act red" data-act="skip"><b>${i.task ? "このタスクを削除" : "今日は見送る"}</b></button></li>` : ""}
+    </ul>`, (act) => {
+    if (act === "right") return closeSheet();
+    if (act === "move") return timeSheet(p, i);
+    if (act === "edit") return taskSheet(p, p.dd.tasks.find((t) => t.id === id));
+    if (act === "skip" && i.task && !confirmTwice(`del-${id}`)) return;
+    applyAction(p, id, act);
+  });
+}
+
+// 今日だけのタスクを追加・編集(名前・時刻・長さ)
+function taskSheet(p, t) {
+  const draft = t ? { ...t, start: hm2(toMin(t.start)) } : { id: `t${Date.now()}`, name: "", start: p.dd.tasks.length ? p.dd.tasks[p.dd.tasks.length - 1].start : hm2(Math.min(Math.max(p.windDown - 90, p.wake + 60), 1380)), min: 30 };
+  const now = logicalNow();
+  if (!t && dayKey(p.date) === dayKey(now.date)) draft.start = hm2(Math.ceil((now.min + 10) / 5) * 5);
+  const draw = () => {
+    openSheet(sheetHead(t ? "タスクを編集" : "今日のタスクを追加") + `
+      <input class="name-input" id="tname" placeholder="やること（例：歯医者）" maxlength="40">
+      <input type="time" class="big-time" id="ttime" value="${draft.start}">
+      <p class="sheet-label">長さ</p>
+      <div class="chips">${[10, 15, 30, 45, 60, 90, 120].map((m) => `<button class="chip ${draft.min === m ? "on" : ""}" data-min="${m}">${m < 60 ? `${m}分` : m === 90 ? "1時間半" : `${m / 60}時間`}</button>`).join("")}</div>
+      <p class="sheet-note">この日だけのタスクです。毎日・毎週のルーティーンは「設定」から追加します。</p>`, (act) => {
+      draft.name = $("#tname").value.trim() || draft.name;
+      draft.start = $("#ttime").value || draft.start;
+      if (act === "right") {
+        if (!draft.name) return notice("やることを入れてください");
+        if (!/^\d{1,2}:\d{2}$/.test(draft.start)) return notice("時刻を入れてください");
+        const list = p.dd.tasks;
+        const at = list.findIndex((x) => x.id === draft.id);
+        if (at >= 0) list[at] = { ...draft }; else list.push({ ...draft });
+        save();
+      }
+      closeSheet();
+      render();
+    });
+    $("#tname").value = draft.name;
+    document.querySelectorAll("#sheet [data-min]").forEach((b) => (b.onclick = () => { draft.name = $("#tname").value; draft.start = $("#ttime").value || draft.start; draft.min = +b.dataset.min; draw(); }));
+  };
+  draw();
+}
+
+// 今日の予定の開始時刻を変える(元に戻すこともできる)
+function timeSheet(p, i) {
+  const id = i.id;
+  openSheet(sheetHead("時間を変える") + `
+    <p class="sheet-meta">${esc(i.name)}</p>
+    <input type="time" class="big-time" id="mtime" value="${hm2(i.start)}">
+    ${i.moved ? `<ul class="group in-sheet"><li><button class="row act" data-act="reset"><b>元の時刻に戻す</b></button></li></ul>` : ""}`, (act) => {
+    if (act === "right") {
+      const v = $("#mtime").value;
+      if (!v) return notice("時刻を入れてください");
+      setStart(p, i, v);
+    }
+    if (act === "reset") { delete p.dd.moved[id]; save(); }
+    closeSheet();
+    render();
+  });
+}
+function setStart(p, i, hhmm) {
+  hhmm = hm2(toMin(hhmm));
+  if (i.task) { const t = p.dd.tasks.find((x) => x.id === i.id); if (t) t.start = hhmm; } else p.dd.moved[i.id] = hhmm;
+  save();
 }
 
 // 予定の操作(完了・短く・見送る・明日に回す)
@@ -202,10 +269,18 @@ function applyAction(p, id, act) {
   const r = p.items.find((x) => x.id === id);
   if (act === "done") dd.done[id] = !dd.done[id];
   if (act === "shorten") dd.shorten[id] = (dd.shorten[id] || 0) + 15;
-  if (act === "skip") dd.skip[id] = true;
+  if (act === "skip") {
+    if (r && r.task) dd.tasks = dd.tasks.filter((t) => t.id !== id); else dd.skip[id] = true;
+  }
   if (act === "carry" && r) {
-    dd.skip[id] = true;
-    dayData(dayKey(addDays(p.date, 1))).carry.push({ id: r.src || id, name: r.name, min: r.end - r.start });
+    const next = dayData(dayKey(addDays(p.date, 1)));
+    if (r.task) {
+      dd.tasks = dd.tasks.filter((t) => t.id !== id);
+      next.tasks.push({ id: `t${Date.now()}`, name: r.name, start: hm2(r.start), min: r.end - r.start });
+    } else {
+      dd.skip[id] = true;
+      next.carry.push({ id: r.src || id, name: r.name, min: r.end - r.start });
+    }
     notice(`${r.name}を明日に回しました`);
   }
   save();
@@ -260,6 +335,7 @@ function timeline(p, now) {
     return v;
   };
   const height = y(to);
+  tlGeom = { from, to, y };
   let ticks = "";
   for (let t = Math.ceil(from / 60) * 60; t <= to; t += 60) {
     if (folds.some((f) => t > f.a && t < f.b)) continue;
@@ -278,13 +354,58 @@ function timeline(p, now) {
   const html = blocks.map((i) => {
     const h = i.stacked ? 28 : Math.max(24, y(i.end) - y(i.start) - 3);
     const tap = checkable(i) || i.kind === "cal";
+    const drag = i.kind === "routine";
     const fold = i.kind === "work" && work.end - work.start > 120 ? `<button class="fold" id="work-toggle">${folds.length ? "広げる" : "たたむ"}</button>` : "";
-    return `<div class="blk ${i.kind} ${i.done ? "done" : ""} ${i.stacked ? "stacked" : ""}" style="top:${i.top}px;height:${h}px;--rc:${tint(i)}" ${tap ? `data-item="${i.id}"` : ""}>
+    return `<div class="blk ${i.kind} ${i.done ? "done" : ""} ${i.stacked ? "stacked" : ""}" style="top:${i.top}px;height:${h}px;--rc:${tint(i)}" ${tap ? `data-item="${i.id}"` : ""} ${drag ? `data-drag="${i.id}" data-start="${i.start}"` : ""}>
       <span class="t">${i.kind === "work" ? `${clock(i.start)}–${clock(i.end)}` : clock(i.start)}</span><b>${esc(i.name)}</b>${fold}</div>`;
   }).join("");
   const sleep = `<div class="blk sleepb" style="top:${y(p.bed)}px;height:${Math.max(40, height - y(p.bed))}px"><span class="t">${clock(p.bed)}</span><b>睡眠</b></div>`;
   const nowLine = now !== null && now >= from && now <= to ? `<div class="nowline" style="top:${y(now)}px"></div>` : "";
   return `<div class="axis" style="height:${height}px">${ticks}</div><div class="lane" style="height:${height}px">${html}${sleep}${nowLine}</div>`;
+}
+
+// 時間で見るで、予定を長押ししてドラッグすると時刻を動かせる(5分刻み)
+let tlGeom = null;
+let dragEndedAt = 0;
+function enableDrag(p) {
+  const lane = document.querySelector(".timeline .lane");
+  if (!lane || !tlGeom) return;
+  const { from, to, y } = tlGeom;
+  const minAt = (px) => { let best = from, d = Infinity; for (let t = from; t <= to; t++) { const v = Math.abs(y(t) - px); if (v < d) { d = v; best = t; } } return best; };
+  let dragging = null;
+  lane.addEventListener("touchmove", (e) => { if (dragging && dragging.on) e.preventDefault(); }, { passive: false });
+  lane.querySelectorAll("[data-drag]").forEach((el) => {
+    el.style.touchAction = "pan-y";
+    el.addEventListener("pointerdown", (e) => {
+      if (e.button) return;
+      const startY = e.clientY, top0 = parseFloat(el.style.top), start0 = +el.dataset.start;
+      const st = { on: false, timer: null, startY, top0, start0, pid: e.pointerId, t: start0 };
+      dragging = st;
+      st.timer = setTimeout(() => { st.on = true; el.classList.add("dragging"); try { el.setPointerCapture(st.pid); } catch {} if (navigator.vibrate) navigator.vibrate(10); }, 350);
+      const move = (ev) => {
+        if (!st.on) { if (Math.abs(ev.clientY - st.startY) > 8) cancel(); return; }
+        const dy = ev.clientY - st.startY;
+        const top = Math.min(Math.max(st.top0 + dy, 0), parseFloat(lane.style.height) - 24);
+        el.style.top = top + "px";
+        st.t = Math.round(minAt(Math.min(Math.max(y(st.start0) + dy, 0), y(to))) / 5) * 5; // 重なりで下げて表示している分は足さない
+        const tt = el.querySelector(".t"); if (tt) tt.textContent = clock(st.t % 1440);
+      };
+      const cancel = () => { clearTimeout(st.timer); cleanup(); };
+      const up = () => {
+        clearTimeout(st.timer);
+        const moved = st.on && st.t !== st.start0;
+        if (st.on) dragEndedAt = Date.now();
+        cleanup();
+        if (moved) {
+          const it = p.items.find((x) => x.id === el.dataset.drag);
+          if (it) { setStart(p, it, hm2(st.t)); notice(`${it.name}を ${clock(st.t % 1440)} に動かしました`); }
+        }
+        if (st.on) render();
+      };
+      const cleanup = () => { el.classList.remove("dragging"); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", cancel); dragging = null; };
+      el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", cancel);
+    });
+  });
 }
 
 // ---- 週の画面 ----
