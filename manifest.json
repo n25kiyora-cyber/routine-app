@@ -3,8 +3,8 @@
   "short_name": "手帳",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#F5F2EB",
-  "theme_color": "#F5F2EB",
+  "background_color": "#F2F2F7",
+  "theme_color": "#F2F2F7",
   "icons": [
     { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }

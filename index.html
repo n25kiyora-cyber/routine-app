@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#F5F2EB">
+  <meta name="theme-color" content="#F2F2F7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="手帳">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=12">
   <title>手帳</title>
 </head>
 <body>
@@ -18,9 +18,9 @@
   <main id="view"></main>
 
   <nav class="tabs" aria-label="画面の切り替え">
-    <button data-tab="today">今日</button>
-    <button data-tab="week">週</button>
-    <button data-tab="settings">設定</button>
+    <button data-tab="today"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><circle cx="12" cy="14.5" r="1.6" class="fill"/></svg>今日</button>
+    <button data-tab="week"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4.5" cy="6" r="1.2" class="fill"/><circle cx="4.5" cy="12" r="1.2" class="fill"/><circle cx="4.5" cy="18" r="1.2" class="fill"/></svg>週</button>
+    <button data-tab="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>設定</button>
   </nav>
 
   <!-- 下から出てくる小さな操作パネル -->
@@ -28,6 +28,7 @@
   <section id="sheet" hidden role="dialog" aria-modal="true"></section>
 
   <div id="notice" hidden role="status"></div>
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=12"></script>
+  <script src="ui.js?v=12"></script>
 </body>
 </html>
