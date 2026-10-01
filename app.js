@@ -168,9 +168,9 @@ function save() {
 let state = load();
 const S = () => state.settings;
 function dayData(key) {
-  state.days[key] ??= {};
+  if (!state.days[key]) state.days[key] = {};
   const d = state.days[key];
-  d.done ??= {}; d.skip ??= {}; d.shorten ??= {}; d.carry ??= [];
+  if (!d.done) d.done = {}; if (!d.skip) d.skip = {}; if (!d.shorten) d.shorten = {}; if (!d.carry) d.carry = [];
   return d;
 }
 
@@ -598,11 +598,11 @@ function daysLabel(days) {
   // 連続した曜日は「月–金」の形に
   const runs = [];
   for (const d of set) {
-    const last = runs.at(-1);
-    if (last && ORDER.indexOf(d) === ORDER.indexOf(last.at(-1)) + 1) last.push(d);
+    const last = runs[runs.length - 1];
+    if (last && ORDER.indexOf(d) === ORDER.indexOf(last[last.length - 1]) + 1) last.push(d);
     else runs.push([d]);
   }
-  return runs.map((r) => (r.length > 2 ? `${DOW[r[0]]}–${DOW[r.at(-1)]}` : r.map((d) => DOW[d]).join("・"))).join("・");
+  return runs.map((r) => (r.length > 2 ? `${DOW[r[0]]}–${DOW[r[r.length - 1]]}` : r.map((d) => DOW[d]).join("・"))).join("・");
 }
 function groupSlots(slots) {
   const groups = {};
@@ -610,7 +610,8 @@ function groupSlots(slots) {
     const sl = slots[d];
     if (!sl) continue;
     const k = `${sl.start}|${sl.min}`;
-    (groups[k] ??= { start: sl.start, min: sl.min, days: [] }).days.push(d);
+    if (!groups[k]) groups[k] = { start: sl.start, min: sl.min, days: [] };
+    groups[k].days.push(d);
   }
   return Object.values(groups);
 }
@@ -621,7 +622,8 @@ function workSummary() {
     const w = S().work[d];
     if (!w) { off.push(d); continue; }
     const k = `${w.start}|${w.end}`;
-    (groups[k] ??= { w, days: [] }).days.push(d);
+    if (!groups[k]) groups[k] = { w, days: [] };
+    groups[k].days.push(d);
   }
   const parts = Object.values(groups).map((g) => `${daysLabel(g.days)} ${clock(toMin(g.w.start))}–${clock(toMin(g.w.end))}`);
   if (off.length) parts.push(`${daysLabel(off)} 休み`);
@@ -931,4 +933,12 @@ setInterval(() => { if (tab === "today" && !busy()) render(); }, 60000);
 const busy = () => !$("#sheet").hidden || document.activeElement?.matches("textarea,input,select");
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !busy()) render(tab === "today"); });
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator) {
+  // 新しい版が届いたら、1回だけ読み込み直して切り替える
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (hadController && !reloaded) { reloaded = true; location.reload(); }
+  });
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}

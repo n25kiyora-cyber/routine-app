@@ -237,6 +237,7 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   position: fixed; left: 0; right: 0; bottom: 0;
   display: flex; justify-content: center; gap: 36px;
   padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  background: var(--paper); /* 古い iPhone 向けの代わり */
   background: color-mix(in srgb, var(--paper) 88%, transparent);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
   border-top: 1px solid var(--rule);
