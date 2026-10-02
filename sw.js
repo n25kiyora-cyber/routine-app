@@ -1,7 +1,7 @@
 // オフラインでも開けるように、アプリのファイルをスマホに保存しておく。
 // ファイルを更新したら VERSION の数字を上げ、index.html の ?v= の数字もそろえる。
-const VERSION = "v15";
-const FILES = ["./", "index.html", "style.css?v=15", "app.js?v=15", "ui.js?v=15", "manifest.json", "icon.svg", "icon-180.png"];
+const VERSION = "v18";
+const FILES = ["./", "index.html", "style.css?v=18", "app.js?v=18", "ui.js?v=18", "manifest.json", "icon.svg", "icon-180.png"];
 
 self.addEventListener("install", (e) => {
   self.skipWaiting(); // 新しい版をすぐ使う

@@ -105,6 +105,7 @@ function repair(d) {
   return sanitize({ ...d, settings: st });
 }
 
+const NIGHT_EDGE = 240; // 4:00。自分で入れた時刻はこれより前なら「その夜の深夜」とみなす
 const validHM = (v) => typeof v === "string" && /^\d{1,2}:\d{2}$/.test(v) && +v.split(":")[0] < 24 && +v.split(":")[1] < 60;
 const hm2 = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(((m % 60) + 60) % 60).padStart(2, "0")}`; // time入力用の「09:00」形式
 
@@ -122,10 +123,12 @@ function sanitize(d) {
       // 今日だけの単発タスク {id,name,start:"HH:MM",min} と、ルーティーンの時刻の変更 {id:"HH:MM"}
       tasks: Array.isArray(day.tasks) ? day.tasks.filter((t) => t && typeof t.id === "string" && typeof t.name === "string" && validHM(t.start) && Number.isFinite(t.min) && t.min > 0 && t.min <= 720) : [],
       chk: obj(day.chk), // 朝・夜のルーティーンのチェック {項目id: true}
+      // 読書メモ [{id, book, learned, action}]
+      reads: Array.isArray(day.reads) ? day.reads.filter((r) => r && typeof r.id === "string" && typeof r.learned === "string" && r.learned.trim()).map((r) => ({ id: r.id, book: typeof r.book === "string" ? r.book.slice(0, 80) : "", learned: r.learned.slice(0, 2000), action: typeof r.action === "string" ? r.action.slice(0, 500) : "" })) : [],
       moved: Object.fromEntries(Object.entries(obj(day.moved)).filter(([, v]) => validHM(v))),
     };
   }
-  const cl = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x.id === "string" && typeof x.name === "string" && x.name.trim()).slice(0, 30).map((x) => ({ id: x.id, name: x.name.slice(0, 40) })) : []);
+  const cl = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x.id === "string" && typeof x.name === "string" && x.name.trim()).slice(0, 30).map((x) => ({ id: x.id, name: x.name.slice(0, 40), ...(Number.isFinite(x.min) && x.min > 0 && x.min <= 180 ? { min: Math.round(x.min) } : {}), ...(x.on === "work" || x.on === "off" ? { on: x.on } : {}) })) : []); // min: タイマー用の分数(任意)、on: 仕事の日だけ/休みの日だけ
   const checklists = { morning: cl(obj(d.checklists).morning), night: cl(obj(d.checklists).night) };
   const reviews = {};
   for (const [k, r] of Object.entries(obj(d.reviews))) if (r && typeof r === "object") reviews[k] = r;
@@ -179,20 +182,26 @@ function save() {
   lastSettingsJson = js;
   if (!state.settingsRev) state.settingsRev = Date.now();
   try {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    const js2 = JSON.stringify(state);
+    localStorage.setItem(KEY, js2);
+    lastGood = js2;
     if (state.cal && JSON.stringify(state.settings) !== state.calPushed) schedulePush(); // 設定が変わったらカレンダーへ
     return true;
   } catch {
-    notice("保存に失敗しました");
+    // 保存できなかった変更は画面にも残さない(開き直すと消えて見えるのを防ぐ)
+    if (lastGood) { state = JSON.parse(lastGood); lastSettingsJson = JSON.stringify(state.settings); }
+    notice("保存できなかったため、いまの変更を取り消しました。iPhoneの空き容量を確認してください");
     return false;
   }
 }
+let lastGood = null; // 最後に保存できた状態
 let state = load();
+try { lastGood = JSON.stringify(state); } catch {}
 const S = () => state.settings;
 function dayData(key) {
   if (!state.days[key]) state.days[key] = {};
   const d = state.days[key];
-  if (!d.done) d.done = {}; if (!d.skip) d.skip = {}; if (!d.shorten) d.shorten = {}; if (!d.carry) d.carry = []; if (!d.tasks) d.tasks = []; if (!d.moved) d.moved = {}; if (!d.chk) d.chk = {};
+  if (!d.done) d.done = {}; if (!d.skip) d.skip = {}; if (!d.shorten) d.shorten = {}; if (!d.carry) d.carry = []; if (!d.tasks) d.tasks = []; if (!d.moved) d.moved = {}; if (!d.chk) d.chk = {}; if (!d.reads) d.reads = [];
   return d;
 }
 
@@ -234,7 +243,7 @@ function planOf(date) {
     if (!slot || dd.skip[r.id]) continue;
     const min = Math.max(5, slot.min - (dd.shorten[r.id] || 0));
     let start = toMin(dd.moved[r.id] || slot.start);
-    if (start < wake - 120) start += 1440; // 0時過ぎの予定はその夜のもの
+    if (dd.moved[r.id] ? start < NIGHT_EDGE : start < wake - 120) start += 1440; // 0時過ぎの予定はその夜のもの(動かした時刻は4時前だけ深夜扱い)
     add({ id: r.id, kind: "routine", name: r.name, start, end: start + min, full: slot.min, moved: !!dd.moved[r.id] });
   }
   // 今日だけの単発タスク
@@ -242,7 +251,7 @@ function planOf(date) {
     if (dd.skip[t.id]) continue;
     const min = Math.max(5, t.min - (dd.shorten[t.id] || 0));
     let start = toMin(t.start);
-    if (start < wake - 120) start += 1440;
+    if (start < NIGHT_EDGE) start += 1440; // 4時前は深夜(その夜)、4時以降はその日の朝以降
     add({ id: t.id, kind: "routine", task: true, name: t.name, start, end: start + min, full: t.min });
   }
   // Googleカレンダーの予定(この日の起床2時間前〜翌日の起床2時間前に始まるもの)
@@ -267,7 +276,7 @@ function planOf(date) {
     for (const b of busy) if (b.end > start && b.start < start + min) start = b.end;
     // 寝る準備までに入らなければ、寝る準備の直前に置く(はみ出しとして調整を促す)
     if (start + min > windDown) start = Math.max(earliest, windDown - min);
-    if (dd.moved[id]) { start = toMin(dd.moved[id]); if (start < wake - 120) start += 1440; }
+    if (dd.moved[id]) { start = toMin(dd.moved[id]); if (start < NIGHT_EDGE) start += 1440; }
     add({ id, kind: "routine", name: c.name, start, end: start + min, carried: true, src: c.id, moved: !!dd.moved[id] });
   });
   add({ id: "winddown", kind: "rest", name: "寝る準備", start: windDown, end: bed });
@@ -392,6 +401,31 @@ async function pushSettings() {
 function calErrorText(code) {
   return { unauthorized: "合言葉が違います", not_configured: "住所と合言葉を入れてください", bad_settings: "設定の形がGAS側で受け付けられませんでした" }[code]
     || "つながりませんでした（住所を確かめてください）";
+}
+
+// ---- 読書メモの書き出し(CSV / AIに貼る文章) ----
+function readsIn(from, to) { // from,to は "YYYY-MM-DD"(両端を含む)。空なら全期間
+  return Object.keys(state.days).filter((k) => (!from || k >= from) && (!to || k <= to)).sort()
+    .flatMap((k) => (state.days[k].reads || []).map((r) => ({ date: k, ...r })));
+}
+function readsCsv(list) {
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  return "\uFEFF" + [["日付", "本", "身についたこと", "明日から試すこと"], ...list.map((r) => [r.date, r.book, r.learned, r.action])].map((row) => row.map(q).join(",")).join("\r\n");
+}
+function readsForAI(list, label) {
+  const body = list.map((r) => `### ${r.date}『${r.book || "（本の名前なし）"}』\n- 身についたこと: ${r.learned}${r.action ? `\n- 明日から試すこと: ${r.action}` : ""}`).join("\n\n");
+  return `以下は私の${label}の読書メモです（${list.length}件）。\n次の3つをまとめてください。\n1. 繰り返し出てくるテーマや考え方\n2. 実際の行動に移せたこと・まだのこと\n3. 来月いちばん意識すべきことを1つ\n\n${body}`;
+}
+async function shareText(name, text, type) {
+  const file = new File([text], name, { type });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === "AbortError") return; }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
 // ---- 書き出し・復元 ----

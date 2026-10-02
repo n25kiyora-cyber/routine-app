@@ -311,3 +311,58 @@ textarea { resize: none; }
 #view.slide-r { animation: slideR 0.22s ease-out; }
 @keyframes slideL { from { transform: translateX(36px); opacity: 0.4; } }
 @keyframes slideR { from { transform: translateX(-36px); opacity: 0.4; } }
+
+.cnt-l { font-size: 11px; margin-right: 3px; opacity: 0.7; }
+.row.day .count { text-align: right; line-height: 1.35; }
+.muted { color: var(--sub); }
+
+.cl-sub { margin-left: 8px; font-size: 12px; opacity: 0.8; }
+.row .ic.book { background: var(--c-teal); }
+.row.act[disabled] { opacity: 0.4; }
+
+/* 円で見る */
+.card.pie { padding: 12px 8px 14px; }
+.pie-svg { width: 100%; height: auto; max-width: 340px; display: block; margin: 0 auto; stroke: none; stroke-width: 0; }
+.pie-svg path { stroke: var(--card); stroke-width: 1.5; }
+.pie-svg text { stroke: none; }
+.pie-svg .tapseg { cursor: pointer; }
+.pie-t { font-size: 13px; fill: var(--sub); font-variant-numeric: tabular-nums; }
+.pie-s { font-size: 13px; fill: var(--sub); }
+.pie-n { font-size: 22px; font-weight: 700; fill: var(--text); }
+.pie-legend { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; font-size: 12px; color: var(--sub); margin-top: 6px; }
+.pie-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+/* 今月の記録 */
+.card.month { padding: 14px 14px 10px; }
+.mrow + .mrow { margin-top: 12px; }
+.mhead { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+.mhead b { font-weight: 600; }
+.mhead span { color: var(--sub); font-variant-numeric: tabular-nums; }
+.mgrid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; }
+.mgrid i { aspect-ratio: 1; border-radius: 4px; }
+.mgrid i.done { background: var(--rc); }
+.mgrid i.half { background: linear-gradient(135deg, var(--rc) 50%, transparent 50%); box-shadow: inset 0 0 0 1.5px var(--rc); }
+.mgrid i.miss { box-shadow: inset 0 0 0 1.5px var(--rc); opacity: 0.55; }
+.mgrid i.future { box-shadow: inset 0 0 0 1px var(--sep); }
+.mgrid i.off { background: var(--fill); opacity: 0.5; }
+.mnote { margin: 10px 0 0; font-size: 11px; color: var(--sub); }
+
+/* ルーチンタイマー */
+.row.cl-start .play { width: 28px; height: 28px; border-radius: 50%; background: var(--rc); color: #fff; display: grid; place-items: center; font-size: 12px; flex: 0 0 auto; padding-left: 2px; }
+.row.cl-start .txt b { color: var(--rc); font-weight: 600; }
+#sheet.timer-sheet { min-height: 70vh; }
+.timer { text-align: center; padding: 8px 4px 4px; }
+.t-head { margin: 4px 0 18px; font-size: 14px; color: var(--sub); }
+.t-name { margin: 0; font-size: 28px; font-weight: 700; }
+.t-clock { margin: 18px 0 10px; font-size: 76px; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.t-clock.over { color: var(--c-red); }
+.t-bar { height: 8px; border-radius: 4px; background: var(--sep); overflow: hidden; margin: 0 8px; }
+.t-bar i { display: block; height: 100%; width: 0; background: var(--rc); border-radius: 4px; transition: width 0.25s linear; }
+.t-next { margin: 14px 0 22px; color: var(--sub); font-size: 15px; }
+.t-done { background: var(--rc); }
+.t-row { display: flex; gap: 10px; margin-top: 12px; }
+.t-row button { flex: 1; padding: 12px 0; border-radius: 12px; background: var(--card); text-align: center; color: var(--blue); font-size: 15px; }
+.t-row button.red { color: var(--c-red); }
+.done-msg { padding: 30px 0; }
+
+.cl-hidden { padding: 10px 16px; font-size: 12px; color: var(--sub); border-top: 0.5px solid var(--sep); }
+.presets button.on { background: var(--blue); color: #fff; }

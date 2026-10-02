@@ -13,6 +13,7 @@ const ICON = {
   pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16Z"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   warn: '<svg viewBox="0 0 24 24"><path d="M12 3.5 22 20H2Z"/><path d="M12 10v4.5M12 17.2v.3"/></svg>',
+  book: '<svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>',
   cal: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>',
 };
@@ -96,13 +97,15 @@ function renderToday() {
       : `<button class="card row-card ghost" id="must"><span class="ic star">${ICON.star}</span><span class="txt"><b>今日いちばん大事なことを決める</b></span><span class="plus">${ICON.plus}</span></button>`}
     ${focus ? `<p class="hint">今週変えること：${esc(focus)}</p>` : ""}
     ${conflictCard(p)}
-    <div class="seg" role="tablist"><button data-mode="list" class="${mode === "list" ? "on" : ""}">リスト</button><button data-mode="time" class="${mode === "time" ? "on" : ""}">時間で見る</button></div>
-    ${mode === "list" ? `<ul class="group list">${listRows(p, now)}</ul>` : `<section class="card timeline">${timeline(p, now)}</section>${mode === "time" ? `<p class="hint">予定を長押ししてドラッグすると、時刻を動かせます</p>` : ""}`}
+    <div class="seg" role="tablist"><button data-mode="list" class="${mode === "list" ? "on" : ""}">リスト</button><button data-mode="time" class="${mode === "time" ? "on" : ""}">時間で見る</button><button data-mode="pie" class="${mode === "pie" ? "on" : ""}">円で見る</button></div>
+    ${mode === "list" ? `<ul class="group list">${listRows(p, now)}</ul>` : mode === "pie" ? `<section class="card pie">${dayPie(p, now)}</section>` : `<section class="card timeline">${timeline(p, now)}</section><p class="hint">予定を長押ししてドラッグすると、時刻を動かせます</p>`}
     <ul class="group">
-      <li><button class="row add" id="addtask"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>今日のタスクを追加</b></span></button></li>
+      <li><button class="row add" id="addtask"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>${isToday ? "今日" : `${date.getMonth() + 1}/${date.getDate()}`}のタスクを追加</b></span></button></li>
     </ul>
+    ${skippedRow(p)}
     ${checklist(p, "morning")}
     ${checklist(p, "night")}
+    ${readsBlock(p)}
     <ul class="group">
       <li><button class="row" id="note"><span class="ic pencil">${ICON.pencil}</span><span class="txt"><b>${p.dd.note ? esc(p.dd.note) : "今日できたことを一行"}</b>${p.dd.note ? "<small>今日できたこと</small>" : ""}</span>${ICON.chevron}</button></li>
     </ul>
@@ -125,7 +128,11 @@ function renderToday() {
     b.closest(".row")?.classList.toggle("done", !!p.dd.chk[id]);
     setTimeout(render, 380);
   }));
+  document.querySelectorAll("[data-unskip]").forEach((b) => (b.onclick = () => { delete p.dd.skip[b.dataset.unskip]; save(); render(); }));
+  document.querySelectorAll("[data-cl-start]").forEach((b) => (b.onclick = () => runTimer(p, b.dataset.clStart)));
   document.querySelectorAll("[data-cl-edit]").forEach((el) => (el.onclick = () => { const [k, id] = el.dataset.clEdit.split(":"); checklistSheet(k, id); }));
+  document.querySelectorAll("[data-read]").forEach((el) => (el.onclick = () => readSheet(p, el.dataset.read)));
+  $("#readadd").onclick = () => readSheet(p);
   document.querySelectorAll("[data-cl-add]").forEach((el) => (el.onclick = () => checklistSheet(el.dataset.clAdd)));
   enableDrag(p);
   document.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => { mode = b.dataset.mode; render(); }));
@@ -254,33 +261,218 @@ function itemSheet(p, id) {
   });
 }
 
+// 読書メモ: 読んで身についたこと(1日に何件でも)
+function readsBlock(p) {
+  const list = p.dd.reads;
+  return `<p class="sec">読書メモ${list.length ? `<small class="cl-sub">${list.length}件</small>` : ""}</p>
+    <ul class="group">${list.map((r) => `<li><button class="row" data-read="${r.id}"><span class="ic book">${ICON.book}</span><span class="txt"><b>${esc(r.learned)}</b><small>${r.book ? `『${esc(r.book)}』` : "本の名前なし"}${r.action ? ` ・ 試す：${esc(r.action)}` : ""}</small></span>${ICON.chevron}</button></li>`).join("")}
+      <li><button class="row add" id="readadd"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>読んで身についたことを書く</b></span></button></li>
+    </ul>`;
+}
+function recentBooks() {
+  const seen = [];
+  for (const k of Object.keys(state.days).sort().reverse()) for (const r of state.days[k].reads || []) if (r.book && !seen.includes(r.book)) seen.push(r.book);
+  return seen.slice(0, 6);
+}
+function readSheet(p, id) {
+  const cur = id ? p.dd.reads.find((r) => r.id === id) : null;
+  const d = { book: cur?.book || recentBooks()[0] || "", learned: cur?.learned || "", action: cur?.action || "" };
+  const draw = () => {
+    openSheet(sheetHead(cur ? "読書メモを編集" : "読書メモ") + `
+      <label class="field"><span>本の名前</span><input id="rbook" maxlength="80" placeholder="例：7つの習慣"></label>
+      ${recentBooks().length ? `<div class="chips" style="margin:-4px 0 12px">${recentBooks().map((b) => `<button class="chip ${b === d.book ? "on" : ""}" data-book="${esc(b)}">${esc(b)}</button>`).join("")}</div>` : ""}
+      <label class="field"><span>身についたこと（必須）</span><textarea id="rlearned" rows="4" maxlength="2000" placeholder="読んで、なるほどと思ったこと・自分の言葉で"></textarea></label>
+      <label class="field"><span>明日から試すこと（任意）</span><textarea id="raction" rows="2" maxlength="500" placeholder="例：朝いちばんに今日の最重要を1つ決める"></textarea></label>
+      ${cur ? `<button class="danger" data-act="delete">このメモを削除</button>` : ""}`, (act) => {
+      const v = { book: $("#rbook").value.trim(), learned: $("#rlearned").value.trim(), action: $("#raction").value.trim() };
+      const dd = dayData(dayKey(p.date));
+      if (act === "delete") {
+        if (!confirmTwice(`read-${id}`)) return;
+        dd.reads = dd.reads.filter((r) => r.id !== id);
+        if (!save()) return render();
+        closeSheet(); return render();
+      }
+      if (act === "right") {
+        if (!v.learned) return notice("身についたことを書いてください");
+        const at = dd.reads.findIndex((r) => r.id === id);
+        if (at >= 0) dd.reads[at] = { id, ...v }; else dd.reads.push({ id: `rd${Date.now()}`, ...v });
+        if (!save()) return render();
+      }
+      closeSheet();
+      render();
+    });
+    $("#rbook").value = d.book; $("#rlearned").value = d.learned; $("#raction").value = d.action;
+    document.querySelectorAll("#sheet [data-book]").forEach((b) => (b.onclick = () => { d.learned = $("#rlearned").value; d.action = $("#raction").value; d.book = b.dataset.book; draw(); }));
+  };
+  draw();
+}
+function readsExportSheet() {
+  const now = logicalNow().date;
+  const ym = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+  const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const ranges = {
+    this: { label: `${now.getMonth() + 1}月`, from: `${ym(now)}-01`, to: `${ym(now)}-31` },
+    last: { label: `${last.getMonth() + 1}月`, from: `${ym(last)}-01`, to: `${ym(last)}-31` },
+    all: { label: "これまで全部", from: "", to: "" },
+  };
+  let sel = "this";
+  const draw = () => {
+    const r = ranges[sel];
+    const list = readsIn(r.from, r.to);
+    openSheet(sheetHead("読書メモを書き出す", "", "閉じる") + `
+      <div class="seg">${Object.entries(ranges).map(([k, x]) => `<button data-range="${k}" class="${k === sel ? "on" : ""}">${x.label}</button>`).join("")}</div>
+      <p class="sheet-meta">${list.length}件</p>
+      <ul class="group in-sheet">
+        <li><button class="row act" data-act="csv" ${list.length ? "" : "disabled"}><b>CSVファイルで書き出す</b></button></li>
+        <li><button class="row act" data-act="ai" ${list.length ? "" : "disabled"}><b>AIに貼る用にコピー</b></button></li>
+      </ul>
+      <p class="sheet-note">CSVはExcel・Googleスプレッドシートで開けます。「AIに貼る用」は、まとめのお願い文つきでコピーされるので、ChatGPTやClaudeにそのまま貼ってください。</p>`, async (act) => {
+      if (act === "right") return closeSheet();
+      if (!list.length) return;
+      const tag = sel === "all" ? "all" : r.from.slice(0, 7);
+      if (act === "csv") await shareText(`reading-${tag}.csv`, readsCsv(list), "text/csv");
+      if (act === "ai") {
+        const text = readsForAI(list, r.label);
+        try { await navigator.clipboard.writeText(text); notice("コピーしました。AIに貼り付けてください"); }
+        catch { await shareText(`reading-${tag}.txt`, text, "text/plain"); }
+      }
+    });
+    document.querySelectorAll("#sheet [data-range]").forEach((b) => (b.onclick = () => { sel = b.dataset.range; draw(); }));
+  };
+  draw();
+}
+
 // 朝・夜のルーティーン(毎日同じ項目を、日ごとにチェックしていく)
 const CL = {
   morning: { title: "モーニングルーティン", color: "var(--c-orange)", chips: ["水を飲む", "カーテンを開ける", "ストレッチ", "瞑想", "朝の日記", "散歩", "朝食"] },
   night: { title: "ナイトルーティン", color: "var(--c-indigo)", chips: ["明日の準備", "日記", "ストレッチ", "スマホを置く", "読書", "歯みがき", "入浴"] },
 };
+// 週の画面: 朝・夜ルーティンの達成数
+function clWeek(p) {
+  const m = clFor(p, "morning"), n = clFor(p, "night");
+  const c = (l) => l.filter((x) => p.dd.chk[x.id]).length;
+  return (m.length ? `<br><span class="cnt-l">朝</span>${c(m)}/${m.length}` : "") + (n.length ? `<br><span class="cnt-l">夜</span>${c(n)}/${n.length}` : "");
+}
+
+// 「今日は見送る」にした予定を戻す
+function skippedRow(p) {
+  const st = S();
+  const list = Object.entries(p.dd.skip).filter(([, v]) => v === true).map(([id]) => {
+    const r = st.routines.find((x) => x.id === id && x.slots[p.date.getDay()]);
+    if (r) return { id, name: r.name };
+    const m = /^carry-(\d+)$/.exec(id);
+    if (m && p.dd.carry[+m[1]]) return { id, name: p.dd.carry[+m[1]].name };
+    return null;
+  }).filter(Boolean);
+  if (!list.length) return "";
+  return `<p class="sec">見送った予定</p><ul class="group">${list.map((x) => `<li><button class="row" data-unskip="${x.id}"><span class="txt"><b class="muted">${esc(x.name)}</b></span><span class="blue">戻す</span></button></li>`).join("")}</ul>`;
+}
+const CL_MAX = 30; // 保存データの読み込みも30件まで
+const clFor = (p, kind) => state.checklists[kind].filter((i) => !i.on || (i.on === "work") === !!p.work); // 仕事の日だけ/休みの日だけ
+const CL_MIN = { 水を飲む: 1, カーテンを開ける: 1, ストレッチ: 5, 瞑想: 5, 朝の日記: 5, 散歩: 15, 朝食: 15, 明日の準備: 5, 日記: 5, スマホを置く: 1, 読書: 15, 歯みがき: 3, 入浴: 20 };
+
+// ルーチンタイマー: 朝・夜ルーティンを1つずつカウントダウンで進める
+function runTimer(p, kind) {
+  const c = CL[kind];
+  const queue = clFor(p, kind).filter((i) => !p.dd.chk[i.id]);
+  if (!queue.length) return;
+  let idx = 0, endAt = 0, startAt = 0, pausedLeft = null, beeped = false, tick = null, lock = null, ac = null;
+  try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+  const beep = () => { if (!ac) return; try { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 880; o.connect(g); g.connect(ac.destination); g.gain.setValueAtTime(0.25, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6); o.start(); o.stop(ac.currentTime + 0.6); } catch {} };
+  const keepAwake = async () => { try { lock = await navigator.wakeLock?.request("screen"); } catch {} };
+  const stop = () => { clearInterval(tick); try { lock?.release(); } catch {} lock = null; timerRunning = false; };
+  const begin = () => { const it = queue[idx]; startAt = Date.now(); endAt = it.min ? startAt + it.min * 60000 : 0; pausedLeft = null; beeped = false; };
+  const fmt = (ms) => { const s = Math.max(0, Math.round(Math.abs(ms) / 1000)); return `${ms < 0 ? "+" : ""}${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  const draw = () => {
+    const it = queue[idx], nx = queue[idx + 1];
+    openSheet(`<div class="timer" style="--rc:${c.color}">
+      <p class="t-head">${c.title}　${idx + 1} / ${queue.length}</p>
+      <p class="t-name">${esc(it.name)}</p>
+      <p class="t-clock" id="tclock">${it.min ? `${it.min}:00` : "0:00"}</p>
+      <div class="t-bar"><i id="tbar"></i></div>
+      <p class="t-next">${nx ? `次は：${esc(nx.name)}${nx.min ? `（${nx.min}分）` : ""}` : "これで最後です"}</p>
+      <button class="primary t-done" data-act="done">できた・次へ</button>
+      <div class="t-row"><button data-act="pause" id="tpause">一時停止</button><button data-act="skip">とばす</button><button data-act="quit" class="red">やめる</button></div>
+    </div>`, (act) => {
+      if (act === "done") { p.dd.chk[queue[idx].id] = true; save(); return next(); }
+      if (act === "skip") return next();
+      if (act === "pause") {
+        if (pausedLeft === null) { pausedLeft = (endAt || Date.now()) - Date.now(); if (!endAt) pausedLeft = -(Date.now() - startAt); $("#tpause").textContent = "再開"; }
+        else { if (endAt) endAt = Date.now() + pausedLeft; else startAt = Date.now() + pausedLeft; pausedLeft = null; $("#tpause").textContent = "一時停止"; }
+        return;
+      }
+      if (act === "quit") { stop(); closeSheet(); render(); }
+    });
+    $("#sheet").classList.add("timer-sheet");
+    $("#sheet-backdrop").onclick = null; // うっかり閉じない
+    update();
+  };
+  const update = () => {
+    const it = queue[idx];
+    if (!$("#tclock")) return;
+    if (pausedLeft !== null) return;
+    if (it.min) {
+      const left = endAt - Date.now();
+      $("#tclock").textContent = fmt(left);
+      $("#tclock").classList.toggle("over", left < 0);
+      $("#tbar").style.width = `${Math.min(100, (1 - left / (it.min * 60000)) * 100)}%`;
+      if (left <= 0 && !beeped) { beeped = true; beep(); setTimeout(beep, 700); }
+    } else {
+      $("#tclock").textContent = fmt(Date.now() - startAt);
+      $("#tbar").style.width = "0%";
+    }
+  };
+  const next = () => {
+    idx++;
+    if (idx >= queue.length) {
+      stop();
+      openSheet(sheetHead(c.title, "", "閉じる") + `<div class="timer done-msg"><p class="t-name">おつかれさま</p><p class="t-next">${c.title}が終わりました</p></div>`, () => { closeSheet(); render(); });
+      $("#sheet").classList.remove("timer-sheet");
+      return;
+    }
+    begin(); draw();
+  };
+  timerRunning = true;
+  keepAwake();
+  begin(); draw();
+  tick = setInterval(update, 250);
+}
+let timerRunning = false;
 function checklist(p, kind) {
   const c = CL[kind];
-  const items = state.checklists[kind];
+  const all0 = state.checklists[kind];
+  const items = clFor(p, kind);
+  const hidden = all0.length - items.length;
   const done = items.filter((i) => p.dd.chk[i.id]).length;
   const sub = kind === "morning" ? `起床 ${clock(p.wake)}〜` : `寝る準備 ${clock(p.windDown % 1440)}〜`;
   const all = items.length > 0 && done === items.length;
-  return `<p class="sec cl-title"><span>${c.title}<small>${sub}</small></span><span class="cl-count ${all ? "all" : ""}">${items.length ? (all ? "✓ 完了" : `${done}/${items.length}`) : ""}</span></p>
-    <ul class="group">${items.map((i) => `<li class="row item ${p.dd.chk[i.id] ? "done" : ""}" style="--rc:${c.color}" data-cl-edit="${kind}:${i.id}">
+  const total = items.reduce((s, i) => s + (i.min || 0), 0);
+  const left = items.filter((i) => !p.dd.chk[i.id]);
+  return `<p class="sec cl-title"><span>${c.title}<small>${sub}${total ? `・合計${dur(total)}` : ""}</small></span><span class="cl-count ${all ? "all" : ""}">${items.length ? (all ? "✓ 完了" : `${done}/${items.length}`) : ""}</span></p>
+    <ul class="group">${left.length && dayKey(p.date) === dayKey(logicalNow().date) ? `<li><button class="row cl-start" data-cl-start="${kind}" style="--rc:${c.color}"><span class="play">▶</span><span class="txt"><b>スタート</b><small>残り${left.length}つを順番にタイマーで</small></span></button></li>` : ""}
+      ${items.map((i) => `<li class="row item ${p.dd.chk[i.id] ? "done" : ""}" style="--rc:${c.color}" data-cl-edit="${kind}:${i.id}">
         <button class="check ${p.dd.chk[i.id] ? "on" : ""}" data-cl-check="${i.id}" aria-label="${p.dd.chk[i.id] ? "未完了に戻す" : "できた"}"></button>
-        <span class="txt"><b>${esc(i.name)}</b></span>${ICON.chevron}</li>`).join("")}
+        <span class="txt"><b>${esc(i.name)}</b>${i.min || i.on ? `<small>${[i.min ? `${i.min}分` : "", i.on === "work" ? "仕事の日" : i.on === "off" ? "休みの日" : ""].filter(Boolean).join("・")}</small>` : ""}</span>${ICON.chevron}</li>`).join("")}
+      ${hidden ? `<li class="cl-hidden">${p.work ? "休みの日" : "仕事の日"}だけの項目 ${hidden}つは、今日は出していません</li>` : ""}
       <li><button class="row add" data-cl-add="${kind}"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>${c.title}に追加</b></span></button></li>
     </ul>`;
 }
 function checklistSheet(kind, id) {
   const c = CL[kind];
-  const list = state.checklists[kind];
-  const cur = id ? list.find((x) => x.id === id) : null;
+  let list, cur;
+  const fresh = () => { list = state.checklists[kind]; cur = id ? list.find((x) => x.id === id) : null; }; // 保存失敗で状態が戻っても古い参照を使わない
+  fresh();
+  let dmin = cur?.min || 0, typed = null, don = cur?.on || "";
   const draw = () => {
+    fresh();
     const have = new Set(list.map((x) => x.name));
     const idx = cur ? list.indexOf(cur) : -1;
     openSheet(sheetHead(cur ? "項目を編集" : `${c.title}に追加`, cur ? "キャンセル" : "閉じる", cur ? "保存" : "追加") + `
       <input class="name-input" id="clname" placeholder="やること（例：水を飲む）" maxlength="40">
+      <p class="sheet-label">やる日</p>
+      <div class="presets">${[["", "毎日"], ["work", "仕事の日だけ"], ["off", "休みの日だけ"]].map(([v, l]) => `<button class="${don === v ? "on" : ""}" data-don="${v}">${l}</button>`).join("")}</div>
+      <p class="sheet-label">かける時間（タイマー用・任意）</p>
+      <div class="chips">${[0, 1, 3, 5, 10, 15, 20, 30].map((m) => `<button class="chip ${dmin === m ? "on" : ""}" data-dmin="${m}">${m ? `${m}分` : "なし"}</button>`).join("")}</div>
       ${cur ? `<ul class="group in-sheet">
         ${idx > 0 ? `<li><button class="row act" data-act="up"><b>1つ上へ</b></button></li>` : ""}
         ${idx < list.length - 1 ? `<li><button class="row act" data-act="down"><b>1つ下へ</b></button></li>` : ""}
@@ -288,6 +480,8 @@ function checklistSheet(kind, id) {
       : `<p class="sheet-label">よく使うもの（押すとすぐ追加）</p><div class="chips">${c.chips.filter((n) => !have.has(n)).map((n) => `<button class="chip" data-chip="${esc(n)}">${esc(n)}</button>`).join("")}</div>
          <p class="sheet-note">毎日同じ項目が並び、日ごとにチェックしていきます。</p>`}`, (act) => {
       const name = $("#clname").value.trim();
+      fresh();
+      if (id && !cur) { closeSheet(); return render(); }
       if (act === "up" || act === "down") {
         const j = idx + (act === "up" ? -1 : 1);
         [list[idx], list[j]] = [list[j], list[idx]];
@@ -299,16 +493,23 @@ function checklistSheet(kind, id) {
       }
       if (act === "right") {
         if (name) {
-          if (cur) cur.name = name; else list.push({ id: `c${Date.now()}`, name });
-          save();
+          if (!cur && list.length >= CL_MAX) return notice(`${c.title}は${CL_MAX}個までです`);
+          const extra = { ...(dmin ? { min: dmin } : {}), ...(don ? { on: don } : {}) };
+          if (cur) { cur.name = name; if (dmin) cur.min = dmin; else delete cur.min; if (don) cur.on = don; else delete cur.on; } else list.push({ id: `c${Date.now()}`, name, ...extra });
+          if (!save()) return render();
         } else if (!cur) return notice("やることを入れてください");
       }
       closeSheet();
       render();
     });
-    if (cur) $("#clname").value = cur.name;
+    $("#clname").value = typed ?? (cur ? cur.name : "");
+    document.querySelectorAll("#sheet [data-dmin]").forEach((b) => (b.onclick = () => { typed = $("#clname").value; dmin = +b.dataset.dmin; draw(); }));
+    document.querySelectorAll("#sheet [data-don]").forEach((b) => (b.onclick = () => { typed = $("#clname").value; don = b.dataset.don; draw(); }));
     document.querySelectorAll("#sheet [data-chip]").forEach((b) => (b.onclick = () => {
-      list.push({ id: `c${Date.now()}${list.length}`, name: b.dataset.chip });
+      fresh();
+      if (list.length >= CL_MAX) return notice(`${c.title}は${CL_MAX}個までです`);
+      const m0 = CL_MIN[b.dataset.chip];
+      list.push({ id: `c${Date.now()}${list.length}`, name: b.dataset.chip, ...(m0 ? { min: m0 } : {}), ...(don ? { on: don } : {}) });
       save(); render(); draw();
     }));
   };
@@ -317,11 +518,11 @@ function checklistSheet(kind, id) {
 
 // 今日だけのタスクを追加・編集(名前・時刻・長さ)
 function taskSheet(p, t) {
-  const draft = t ? { ...t, start: hm2(toMin(t.start)) } : { id: `t${Date.now()}`, name: "", start: p.dd.tasks.length ? p.dd.tasks[p.dd.tasks.length - 1].start : hm2(Math.min(Math.max(p.windDown - 90, p.wake + 60), 1380)), min: 30 };
+  const draft = t ? { ...t, start: hm2(toMin(t.start)), min: Math.max(5, t.min - (p.dd.shorten[t.id] || 0)) } : { id: `t${Date.now()}`, name: "", start: p.dd.tasks.length ? p.dd.tasks[p.dd.tasks.length - 1].start : hm2(Math.min(Math.max(p.windDown - 90, p.wake + 60), 1380)), min: 30 };
   const now = logicalNow();
   if (!t && dayKey(p.date) === dayKey(now.date)) draft.start = hm2(Math.ceil((now.min + 10) / 5) * 5);
   const draw = () => {
-    openSheet(sheetHead(t ? "タスクを編集" : "今日のタスクを追加") + `
+    openSheet(sheetHead(t ? "タスクを編集" : `${dayKey(p.date) === dayKey(logicalNow().date) ? "今日" : `${p.date.getMonth() + 1}/${p.date.getDate()}`}のタスクを追加`) + `
       <input class="name-input" id="tname" placeholder="やること（例：歯医者）" maxlength="40">
       <input type="time" class="big-time" id="ttime" value="${draft.start}">
       <p class="sheet-label">長さ</p>
@@ -332,10 +533,12 @@ function taskSheet(p, t) {
       if (act === "right") {
         if (!draft.name) return notice("やることを入れてください");
         if (!/^\d{1,2}:\d{2}$/.test(draft.start)) return notice("時刻を入れてください");
-        const list = p.dd.tasks;
+        const dd = dayData(dayKey(p.date)); // 保存失敗で状態が戻ることがあるので、その都度取り直す
+        const list = dd.tasks;
         const at = list.findIndex((x) => x.id === draft.id);
         if (at >= 0) list[at] = { ...draft }; else list.push({ ...draft });
-        save();
+        delete dd.shorten[draft.id]; // 編集した長さをそのまま使う
+        if (!save()) return render(); // 失敗したらシートは開いたまま(入力を残す)
       }
       closeSheet();
       render();
@@ -384,7 +587,7 @@ function applyAction(p, id, act) {
       dd.tasks = dd.tasks.filter((t) => t.id !== id);
       next.tasks.push({ id: `t${Date.now()}`, name: r.name, start: hm2(r.start), min: r.end - r.start });
     } else {
-      dd.skip[id] = true;
+      dd.skip[id] = "carry"; // 明日に回した(戻す一覧には出さない)
       next.carry.push({ id: r.src || id, name: r.name, min: r.end - r.start });
     }
     notice(`${r.name}を明日に回しました`);
@@ -409,6 +612,7 @@ function openSheet(html, onAct) {
 }
 function closeSheet() {
   armed = { id: null, at: 0 };
+  $("#sheet").classList.remove("timer-sheet");
   $("#sheet").hidden = true;
   $("#sheet-backdrop").hidden = true;
 }
@@ -468,6 +672,87 @@ function timeline(p, now) {
   const sleep = `<div class="blk sleepb" style="top:${y(p.bed)}px;height:${Math.max(40, height - y(p.bed))}px"><span class="t">${clock(p.bed)}</span><b>睡眠</b></div>`;
   const nowLine = now !== null && now >= from && now <= to ? `<div class="nowline" style="top:${y(now)}px"></div>` : "";
   return `<div class="axis" style="height:${height}px">${ticks}</div><div class="lane" style="height:${height}px">${html}${sleep}${nowLine}</div>`;
+}
+
+// 円で見る: 24時間を時計のような円にして、1日の流れをひと目で(0時が上、時計回り)
+function dayPie(p, now) {
+  const C = 170, R = 150, r0 = 98;
+  const ang = (m) => ((((m % 1440) + 1440) % 1440) / 1440) * Math.PI * 2 - Math.PI / 2;
+  const pt = (m, rad) => [C + Math.cos(ang(m)) * rad, C + Math.sin(ang(m)) * rad];
+  const arc = (a, b, ro, ri) => {
+    if (b - a >= 1440) b = a + 1439.9;
+    const big = b - a > 720 ? 1 : 0;
+    const [x1, y1] = pt(a, ro), [x2, y2] = pt(b, ro), [x3, y3] = pt(b, ri), [x4, y4] = pt(a, ri);
+    return `M${x1.toFixed(1)} ${y1.toFixed(1)}A${ro} ${ro} 0 ${big} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}L${x3.toFixed(1)} ${y3.toFixed(1)}A${ri} ${ri} 0 ${big} 0 ${x4.toFixed(1)} ${y4.toFixed(1)}Z`;
+  };
+  const col = (i) => i.kind === "sleep" ? "var(--c-indigo)" : i.kind === "work" ? "var(--gray)" : i.kind === "life" ? "var(--sep)" : tint(i);
+  let segs = `<circle cx="${C}" cy="${C}" r="${(R + r0) / 2}" fill="none" stroke="var(--fill)" stroke-width="${R - r0}"/>`;
+  // 睡眠(前の夜の就寝〜今日の起床)も円に入れる
+  const prevBed = p.wake - Math.round(S().sleepHours * 60);
+  segs += `<path d="${arc(prevBed, p.wake, R, r0)}" fill="var(--c-indigo)" opacity=".35"/>`;
+  for (const i of p.items) {
+    if (i.end <= i.start) continue;
+    const inner = i.kind === "routine" || i.kind === "cal" || i.kind === "rest" ? r0 - 22 : r0;
+    const outer = i.kind === "routine" || i.kind === "cal" || i.kind === "rest" ? R + 8 : R;
+    const tap = checkable(i) || i.kind === "cal";
+    segs += `<path d="${arc(i.start, i.end, outer, inner)}" fill="${col(i)}" opacity="${i.kind === "sleep" ? 0.35 : i.done ? 0.45 : 0.9}" ${tap ? `data-item="${i.id}" class="tapseg"` : ""}><title>${esc(i.name)} ${clock(i.start)}–${clock(i.end)}</title></path>`;
+  }
+  let ticks = "";
+  for (let h = 0; h < 24; h += 3) {
+    const [x, y] = pt(h * 60, R + 18);
+    ticks += `<text x="${x.toFixed(0)}" y="${(y + 4).toFixed(0)}" text-anchor="middle" class="pie-t">${h}</text>`;
+  }
+  let hand = "";
+  if (now !== null) {
+    const [x, y] = pt(now, R + 10);
+    hand = `<line x1="${C}" y1="${C}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--c-red)" stroke-width="2.5" stroke-linecap="round"/><circle cx="${C}" cy="${C}" r="5" fill="var(--c-red)"/>`;
+  }
+  const cur = now !== null ? p.items.find((i) => i.start <= now && now < i.end && i.kind !== "life") || p.items.find((i) => i.start > now && i.kind !== "life") : null;
+  const center = cur
+    ? `<text x="${C}" y="${C - 18}" text-anchor="middle" class="pie-s">${cur.start <= now ? "いま" : "次"}</text><text x="${C}" y="${C + 8}" text-anchor="middle" class="pie-n">${esc(cur.name.length > 8 ? cur.name.slice(0, 8) + "…" : cur.name)}</text><text x="${C}" y="${C + 30}" text-anchor="middle" class="pie-s">${clock(cur.start)}–${clock(cur.end)}</text>`
+    : `<text x="${C}" y="${C - 6}" text-anchor="middle" class="pie-s">起床 ${clock(p.wake)}</text><text x="${C}" y="${C + 18}" text-anchor="middle" class="pie-s">就寝 ${clock(p.bed)}</text>`;
+  const legend = [["var(--c-indigo)", "睡眠", .35], ["var(--gray)", "勤務", .9], ["var(--c-blue)", "ルーティーン", .9], ["var(--google)", "予定", .9]];
+  return `<svg viewBox="-24 -24 388 388" class="pie-svg" role="img" aria-label="1日の円グラフ">${segs}${ticks}${hand}${center}</svg>
+    <div class="pie-legend">${legend.map(([c, l, o]) => `<span><i style="background:${c};opacity:${o}"></i>${l}</span>`).join("")}</div>`;
+}
+
+// 今月の記録: ルーティーンごとに1か月のマスを並べ、できた日を塗る(見える化)
+function monthBlock(anchor) {
+  const y = anchor.getFullYear(), m = anchor.getMonth();
+  const n = new Date(y, m + 1, 0).getDate();
+  const today = dayKey(logicalNow().date);
+  const days = [...Array(n)].map((_, i) => new Date(y, m, i + 1));
+  const plans = days.map((d) => planOf(d));
+  const rows = [];
+  for (const r of S().routines) {
+    const cells = plans.map((p) => {
+      const k = dayKey(p.date), planned = !!r.slots[p.date.getDay()];
+      if (!planned) return "off";
+      if (k > today) return "future";
+      return p.dd.done[r.id] ? "done" : "miss";
+    });
+    if (!cells.some((c) => c !== "off")) continue;
+    rows.push({ name: r.name, color: `var(--c-${colorOf(r, S().routines.indexOf(r))})`, cells });
+  }
+  for (const [kind, label, color] of [["morning", "朝ルーティン", "var(--c-orange)"], ["night", "夜ルーティン", "var(--c-indigo)"]]) {
+    if (!state.checklists[kind].length) continue;
+    rows.push({ name: label, color, cells: plans.map((p) => {
+      const items = clFor(p, kind);
+      if (!items.length) return "off";
+      if (dayKey(p.date) > today) return "future";
+      const c = items.filter((x) => p.dd.chk[x.id]).length;
+      return c === items.length ? "done" : c ? "half" : "miss";
+    }) });
+  }
+  rows.push({ name: "読書メモ", color: "var(--c-teal)", cells: plans.map((p) => dayKey(p.date) > today ? "future" : p.dd.reads.length ? "done" : "miss") });
+  const rate = (cells) => { const past = cells.filter((c) => c === "done" || c === "miss" || c === "half"); return past.length ? Math.round(cells.filter((c) => c === "done").length / past.length * 100) : null; };
+  return `<p class="sec">${m + 1}月の記録</p>
+    <div class="card month">${rows.map((row) => {
+      const pct = rate(row.cells);
+      return `<div class="mrow"><div class="mhead"><b>${esc(row.name)}</b><span>${pct === null ? "" : `${pct}%`}</span></div>
+        <div class="mgrid" style="--rc:${row.color}">${row.cells.map((c, i) => `<i class="${c}" title="${i + 1}日"></i>`).join("")}</div></div>`;
+    }).join("")}
+      <p class="mnote">● できた　◐ 一部　○ できなかった　薄い枠はこれからの予定</p></div>`;
 }
 
 // 時間で見るで、予定を長押ししてドラッグすると時刻を動かせる(5分刻み)
@@ -541,9 +826,10 @@ function renderWeek() {
         <span class="date"><small>${DOW[d.getDay()]}</small><b>${d.getDate()}</b></span>
         <span class="txt"><b>${clock(p.wake)} 起床 ・ ${clock(p.bed)} 就寝</b>
           <small>${p.items.filter((i) => i.kind === "routine").map((i) => `<i class="cdot" style="--rc:${tint(i)}"></i>${esc(i.name)}`).join("　") || "ルーティーンなし"}${cals ? `　<i class="cdot" style="--rc:var(--google)"></i>予定${cals}件` : ""}</small></span>
-        <span class="count">${p.conflicts.length ? `<em>重なり</em>` : ""}${done}/${rs.length}</span>${ICON.chevron}
+        <span class="count">${p.conflicts.length ? `<em>重なり</em>` : ""}<span class="cnt-l">予定</span>${done}/${rs.length}${clWeek(p)}</span>${ICON.chevron}
       </button></li>`;
     }).join("")}</ul>
+    ${monthBlock(days[3])}
     <ul class="group"><li><button class="row" id="review"><span class="ic pencil">${ICON.pencil}</span><span class="txt"><b>週の振り返り</b><small>${state.reviews[dayKey(mon)]?.next ? `来週変えること：${esc(state.reviews[dayKey(mon)].next)}` : "日曜の夜に。来週変えることを1つ決める"}</small></span>${ICON.chevron}</button></li></ul>`;
   $("#wprev").onclick = () => { weekOffset--; render(); };
   $("#wnext").onclick = () => { weekOffset++; render(); };
@@ -629,6 +915,7 @@ function renderSettings() {
     <p class="sec">表示とデータ</p>
     <ul class="group">
       ${row("set-night", "夜の配色", nightLabel)}
+      <li><button class="row" id="export-reads"><span class="txt"><b class="blue">読書メモを書き出す（CSV・AI用）</b></span></button></li>
       <li><button class="row" id="export"><span class="txt"><b class="blue">データを書き出す</b></span></button></li>
       <li><label class="row"><span class="txt"><b class="blue">書き出したデータから復元</b></span><input type="file" id="import" accept="application/json" hidden></label></li>
     </ul>
@@ -641,6 +928,7 @@ function renderSettings() {
   $("#set-cal").onclick = calSheet;
   $("#set-night").onclick = nightSheet;
   $("#export").onclick = exportData;
+  $("#export-reads").onclick = readsExportSheet;
   $("#import").onchange = importData;
 }
 
@@ -946,16 +1234,17 @@ function onboarding(step = 1) {
 // ---- 起動 ----
 if (DEV && ["week", "settings"].includes(location.hash.slice(1))) tab = location.hash.slice(1);
 if (NOSAVE && params.get("demo") === "conflict") state.settings.routines[0].slots[4] = s("22:30", 90);
-if (NOSAVE && params.get("demo") === "cl") { state.checklists.morning = [{ id: "m1", name: "白湯を飲む" }, { id: "m2", name: "ストレッチ" }, { id: "m3", name: "瞑想" }]; state.checklists.night = [{ id: "n1", name: "明日の準備" }, { id: "n2", name: "日記" }]; const d0 = dayData(dayKey(logicalNow().date)); d0.chk.m1 = true; d0.chk.m2 = true; render(); }
+if (NOSAVE && params.get("demo") === "cl") { state.checklists.morning = [{ id: "m1", name: "白湯を飲む", min: 3 }, { id: "m2", name: "ストレッチ", min: 5 }, { id: "m3", name: "瞑想", min: 5 }, { id: "m4", name: "通勤の準備", min: 10, on: "work" }]; state.checklists.night = [{ id: "n1", name: "明日の準備" }, { id: "n2", name: "日記" }]; const d0 = dayData(dayKey(logicalNow().date)); d0.chk.m1 = true; d0.chk.m2 = true; render(); }
 if (NOSAVE && params.get("demo") === "carry") dayData(dayKey(logicalNow().date)).carry.push({ id: "study", name: "AI・プログラミング", min: 30 });
 if (NOSAVE && params.get("demo") !== "onboarding") state.onboarded = true;
-if (NOSAVE && params.get("mode") === "time") mode = "time";
+if (NOSAVE && ["time", "pie"].includes(params.get("mode"))) mode = params.get("mode");
 if (NOSAVE && params.get("done") === "1") dayData(dayKey(logicalNow().date)).done.move = true;
 render(true);
 if (!state.onboarded && !onbSkipped) onboarding(NOSAVE ? Number(params.get("step")) || 1 : 1);
 if (NOSAVE && params.get("demo") === "work") workSheet();
 if (NOSAVE && params.get("demo") === "routine") routineSheet(0);
 if (NOSAVE && params.get("demo") === "template") templateSheet();
+if (NOSAVE && params.get("demo") === "timer") { state.checklists.morning = [{ id: "m1", name: "白湯を飲む", min: 3 }, { id: "m2", name: "ストレッチ", min: 5 }]; render(); runTimer(planOf(logicalNow().date), "morning"); }
 if (NOSAVE && params.get("demo") === "calsheet") calSheet();
 save();
 
@@ -974,7 +1263,11 @@ if ("serviceWorker" in navigator) {
   const hadController = !!navigator.serviceWorker.controller;
   let reloaded = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (hadController && !reloaded) { reloaded = true; location.reload(); }
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    // 入力中・ドラッグ中なら、終わるまで待ってから切り替える(書きかけを消さない)
+    const tryReload = () => { if (busy() || document.querySelector(".blk.dragging")) return setTimeout(tryReload, 2000); location.reload(); };
+    tryReload();
   });
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
