@@ -300,3 +300,14 @@ textarea { resize: none; }
 .cl-title small { margin-left: 8px; font-size: 12px; opacity: 0.8; }
 .cl-count { font-size: 13px; font-weight: 600; color: var(--sub); }
 .cl-count.all { color: var(--c-green); }
+
+/* 日付の前後移動 */
+.daynav { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+.daynav p { margin: 0; font-size: 15px; color: var(--sub); }
+.daynav button { color: var(--blue); width: 32px; height: 32px; display: grid; place-items: center; margin-left: -6px; }
+.daynav button svg { width: 18px; height: 18px; stroke-width: 2.4; }
+.daynav .flip svg { transform: scaleX(-1); }
+#view.slide-l { animation: slideL 0.22s ease-out; }
+#view.slide-r { animation: slideR 0.22s ease-out; }
+@keyframes slideL { from { transform: translateX(36px); opacity: 0.4; } }
+@keyframes slideR { from { transform: translateX(-36px); opacity: 0.4; } }

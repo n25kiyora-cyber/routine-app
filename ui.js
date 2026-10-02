@@ -29,6 +29,34 @@ document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
   tab = b.dataset.tab; viewDate = null; if (tab === "week") weekOffset = 0; render(true);
 }));
 
+// 今日の画面で日付を前後に動かす(左スワイプ=次の日、右スワイプ=前の日)
+function shiftDay(n) {
+  const ln = logicalNow();
+  const next = addDays(viewDate || ln.date, n);
+  viewDate = dayKey(next) === dayKey(ln.date) ? null : next;
+  const v = $("#view");
+  v.classList.remove("slide-l", "slide-r");
+  void v.offsetWidth;
+  render(true);
+  v.classList.add(n > 0 ? "slide-l" : "slide-r");
+}
+(() => {
+  let sx = 0, sy = 0, st = 0, ok = false;
+  const v = document.getElementById("view");
+  v.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    // 時間表示のドラッグ・入力欄・シートからは始めない。画面の端(iOSの戻る操作)も避ける
+    ok = tab === "today" && e.touches.length === 1 && !e.target.closest(".blk[data-drag], input, textarea, .seg") && t.clientX > 24 && t.clientX < innerWidth - 24;
+    sx = t.clientX; sy = t.clientY; st = Date.now();
+  }, { passive: true });
+  v.addEventListener("touchend", (e) => {
+    if (!ok || !$("#sheet").hidden || document.querySelector(".blk.dragging")) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.8 && Date.now() - st < 700) shiftDay(dx < 0 ? 1 : -1);
+  }, { passive: true });
+})();
+
 function render(scrollTop = false) {
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
   applyNight();
@@ -53,11 +81,13 @@ function renderToday() {
   const now = isToday ? ln.min : null;
   const p = planOf(date);
   const focus = lastWeekFocus(date);
-  const title = isToday ? "今日" : `${date.getMonth() + 1}月${date.getDate()}日`;
+  const diff = Math.round((date - ln.date) / 86400000);
+  const title = isToday ? "今日" : diff === 1 ? "明日" : diff === -1 ? "昨日" : `${date.getMonth() + 1}月${date.getDate()}日`;
 
   $("#view").innerHTML = `
     ${isToday ? "" : `<button class="backlink" id="back-today">${ICON.back}今日</button>`}
-    <header class="lt"><h1>${title}</h1><p>${date.getMonth() + 1}月${date.getDate()}日 ${DOW_LONG[date.getDay()]}</p></header>
+    <header class="lt"><h1>${title}</h1>
+      <div class="daynav"><button id="dprev" aria-label="前の日">${ICON.back}</button><p>${date.getMonth() + 1}月${date.getDate()}日 ${DOW_LONG[date.getDay()]}</p><button id="dnext" class="flip" aria-label="次の日">${ICON.back}</button></div></header>
     ${state.onboarded ? "" : `<button class="card banner" id="setup"><span>勤務と睡眠を設定すると、あなたの時刻で逆算されます</span><b>設定する</b></button>`}
     ${isToday ? nowCard(p, now) : ""}
     ${sleepCard(p, now)}
@@ -79,6 +109,8 @@ function renderToday() {
     ${p.dd.note && (now === null || now >= p.windDown - 120) ? `<p class="greet">今日も、おつかれさま。</p>` : ""}`;
 
   $("#back-today")?.addEventListener("click", () => { viewDate = null; tab = "today"; render(true); });
+  $("#dprev").onclick = () => shiftDay(-1);
+  $("#dnext").onclick = () => shiftDay(1);
   $("#setup")?.addEventListener("click", () => onboarding(1));
   $("#must").onclick = () => editText("今日いちばん大事なこと", "これだけはやる、を1つ", p.dd.must, (v) => (p.dd.must = v));
   $("#note").onclick = () => editText("今日できたこと", "小さなことでいい", p.dd.note, (v) => (p.dd.note = v));
