@@ -134,7 +134,7 @@ function sanitize(d) {
   const reviews = {};
   for (const [k, r] of Object.entries(obj(d.reviews))) if (r && typeof r === "object") reviews[k] = r;
   const cal = d.cal && typeof d.cal.url === "string" && GAS_URL.test(d.cal.url) && typeof d.cal.key === "string" ? { url: d.cal.url, key: d.cal.key } : undefined;
-  return { settings: d.settings, days, reviews, checklists, onboarded: d.onboarded === true, cal, calPushed: typeof d.calPushed === "string" ? d.calPushed : "",
+  return { settings: d.settings, days, reviews, checklists, onboarded: d.onboarded === true, cal, calPushed: typeof d.calPushed === "string" ? d.calPushed : "", inboxSeen: Array.isArray(d.inboxSeen) ? d.inboxSeen.filter((x) => typeof x === "string").slice(-300) : [],
     settingsRev: typeof d.settingsRev === "number" && d.settingsRev > 0 ? d.settingsRev : Date.now() };
 }
 function readStore(key) {
@@ -354,11 +354,32 @@ async function gas(action, extra) {
   if (!j.ok) throw new Error(j.error || "error");
   return j;
 }
+// AIがドライブに置いたタスクを、まだ取り込んでいない分だけ足す
+function takeInbox(list) {
+  if (!Array.isArray(list)) return;
+  if (!Array.isArray(state.inboxSeen)) state.inboxSeen = [];
+  const seen = new Set(state.inboxSeen);
+  let n = 0;
+  for (const x of list) {
+    if (!x || typeof x.id !== "string" || seen.has(x.id) || typeof x.name !== "string" || !x.name.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(x.date)) continue;
+    const ln = logicalNow();
+    const start = validHM(x.start) ? x.start : hm2(x.date === dayKey(ln.date) ? Math.ceil((ln.min + 10) / 5) * 5 : 1200);
+    const min = Math.min(240, Math.max(5, Number(x.min) || 15));
+    dayData(x.date).tasks.push({ id: `ib-${x.id}`, name: x.name.trim().slice(0, 40), start, min });
+    state.inboxSeen.push(x.id);
+    seen.add(x.id);
+    n++;
+  }
+  if (!n) return;
+  state.inboxSeen = state.inboxSeen.slice(-300);
+  if (save()) notice(`Claudeからタスクが${n}件届きました`);
+}
 async function refreshEvents() {
   if (!state.cal || NOSAVE) return;
   try {
     const j = await gas("events", { from: dayKey(addDays(logicalNow().date, -1)), days: 9 });
     calEvents = Array.isArray(j.events) ? j.events : [];
+    takeInbox(j.inbox);
     calState = { at: Date.now(), error: "" };
     try { localStorage.setItem(CAL_CACHE, JSON.stringify({ at: calState.at, events: calEvents })); } catch {}
     if (!busy()) render();
