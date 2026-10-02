@@ -1302,6 +1302,21 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 // 1分ごとに「いま」を更新。入力中・パネル表示中は止める
 const busy = () => !$("#sheet").hidden || document.activeElement?.matches("textarea,input,select");
 setInterval(() => { if (tab === "today" && !busy()) render(); }, 60000);
+// リンクからタスクを追加する(例: ?add=TikTokの方向性を決める)。同じ名前が今日にあれば足さない
+(() => {
+  const q = new URLSearchParams(location.search);
+  const name = (q.get("add") || "").trim().slice(0, 40);
+  if (!name) return;
+  history.replaceState(null, "", location.pathname);
+  const now = logicalNow();
+  const dd = dayData(dayKey(now.date));
+  if (dd.tasks.some((t) => t.name === name)) return notice("もう追加されています");
+  dd.tasks.push({ id: `t${Date.now()}`, name, start: hm2(Math.ceil((now.min + 10) / 5) * 5), min: 15 });
+  if (!save()) return render();
+  notice(`「${name}」を今日のタスクに追加しました`);
+  tab = "today"; viewDate = null; render(true);
+})();
+
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !busy()) render(); });
 
 if ("serviceWorker" in navigator) {
