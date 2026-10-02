@@ -25,6 +25,7 @@ let tab = "today";
 let viewDate = null; // 週の画面から別の日を開いたとき
 let mode = "list"; // 今日の画面: リスト / 時間
 let workOpen = false; // 時間で見るとき、勤務の帯を広げるか
+const fold = {}; // 今日の画面: たたんだ部分を開いているか
 let weekOffset = 0; // 週の画面: 0 = 今週
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
   tab = b.dataset.tab; viewDate = null; if (tab === "week") weekOffset = 0; render(true);
@@ -61,6 +62,7 @@ function shiftDay(n) {
 function render(scrollTop = false) {
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
   applyNight();
+  fab(null);
   if (tab === "today") renderToday();
   if (tab === "week") renderWeek();
   if (tab === "settings") renderSettings();
@@ -85,31 +87,35 @@ function renderToday() {
   const diff = Math.round((date - ln.date) / 86400000);
   const title = isToday ? "今日" : diff === 1 ? "明日" : diff === -1 ? "昨日" : `${date.getMonth() + 1}月${date.getDate()}日`;
 
+  // 今の時間帯のルーティンを上に、もう片方はたたむ(終わったものもたたむ)
+  const first = isToday && now >= 720 ? "night" : "morning";
+  const second = first === "morning" ? "night" : "morning";
+  const firstDone = clDone(p, first);
   $("#view").innerHTML = `
     ${isToday ? "" : `<button class="backlink" id="back-today">${ICON.back}今日</button>`}
     <header class="lt"><h1>${title}</h1>
       <div class="daynav"><button id="dprev" aria-label="前の日">${ICON.back}</button><p>${date.getMonth() + 1}月${date.getDate()}日 ${DOW_LONG[date.getDay()]}</p><button id="dnext" class="flip" aria-label="次の日">${ICON.back}</button></div></header>
     ${state.onboarded ? "" : `<button class="card banner" id="setup"><span>勤務と睡眠を設定すると、あなたの時刻で逆算されます</span><b>設定する</b></button>`}
     ${isToday ? nowCard(p, now) : ""}
-    ${sleepCard(p, now)}
     ${p.dd.must
       ? `<button class="card row-card" id="must"><span class="ic star">${ICON.star}</span><span class="txt"><small>今日いちばん大事なこと</small><b>${esc(p.dd.must)}</b></span></button>`
       : `<button class="card row-card ghost" id="must"><span class="ic star">${ICON.star}</span><span class="txt"><b>今日いちばん大事なことを決める</b></span><span class="plus">${ICON.plus}</span></button>`}
     ${focus ? `<p class="hint">今週変えること：${esc(focus)}</p>` : ""}
     ${conflictCard(p)}
+    ${firstDone ? "" : checklist(p, first, fold[first] ?? true)}
     <div class="seg" role="tablist"><button data-mode="list" class="${mode === "list" ? "on" : ""}">リスト</button><button data-mode="time" class="${mode === "time" ? "on" : ""}">時間で見る</button><button data-mode="pie" class="${mode === "pie" ? "on" : ""}">円で見る</button></div>
-    ${mode === "list" ? `<ul class="group list">${listRows(p, now)}</ul>` : mode === "pie" ? `<section class="card pie">${dayPie(p, now)}</section>` : `<section class="card timeline">${timeline(p, now)}</section><p class="hint">予定を長押ししてドラッグすると、時刻を動かせます</p>`}
-    <ul class="group">
-      <li><button class="row add" id="addtask"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>${isToday ? "今日" : `${date.getMonth() + 1}/${date.getDate()}`}のタスクを追加</b></span></button></li>
-    </ul>
+    ${mode === "list" ? listRows(p, now) : mode === "pie" ? `<section class="card pie">${dayPie(p, now)}</section>` : `<section class="card timeline">${timeline(p, now)}</section><p class="hint">予定を長押ししてドラッグすると、時刻を動かせます</p>`}
     ${skippedRow(p)}
-    ${checklist(p, "morning")}
-    ${checklist(p, "night")}
+    <p class="sec">そのほか</p>
+    ${firstDone ? checklist(p, first, fold[first] ?? false) : ""}
+    ${checklist(p, second, fold[second] ?? false)}
     ${readsBlock(p)}
     <ul class="group">
+      ${sleepRow(p, now)}
       <li><button class="row" id="note"><span class="ic pencil">${ICON.pencil}</span><span class="txt"><b>${p.dd.note ? esc(p.dd.note) : "今日できたことを一行"}</b>${p.dd.note ? "<small>今日できたこと</small>" : ""}</span>${ICON.chevron}</button></li>
     </ul>
     ${p.dd.note && (now === null || now >= p.windDown - 120) ? `<p class="greet">今日も、おつかれさま。</p>` : ""}`;
+  fab(`${isToday ? "今日" : `${date.getMonth() + 1}/${date.getDate()}`}のタスクを追加`, () => taskSheet(p));
 
   $("#back-today")?.addEventListener("click", () => { viewDate = null; tab = "today"; render(true); });
   $("#dprev").onclick = () => shiftDay(-1);
@@ -118,7 +124,6 @@ function renderToday() {
   $("#must").onclick = () => editText("今日いちばん大事なこと", "これだけはやる、を1つ", p.dd.must, (v) => (p.dd.must = v));
   $("#note").onclick = () => editText("今日できたこと", "小さなことでいい", p.dd.note, (v) => (p.dd.note = v));
   $("#sleep").onclick = () => sleepSheet();
-  $("#addtask").onclick = () => taskSheet(p);
   document.querySelectorAll("[data-cl-check]").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
     const id = b.dataset.clCheck;
@@ -130,7 +135,9 @@ function renderToday() {
   }));
   document.querySelectorAll("[data-unskip]").forEach((b) => (b.onclick = () => { delete p.dd.skip[b.dataset.unskip]; save(); render(); }));
   document.querySelectorAll("[data-cl-start]").forEach((b) => (b.onclick = () => runTimer(p, b.dataset.clStart)));
-  document.querySelectorAll("[data-cl-edit]").forEach((el) => (el.onclick = () => { const [k, id] = el.dataset.clEdit.split(":"); checklistSheet(k, id); }));
+  document.querySelectorAll("[data-cl-edit]").forEach((el) => (el.onclick = (e) => { e.stopPropagation(); const [k, id] = el.dataset.clEdit.split(":"); checklistSheet(k, id); }));
+  document.querySelectorAll("[data-tap]").forEach((el) => (el.onclick = () => { if (Date.now() - dragEndedAt < 400) return; el.querySelector("[data-check], [data-cl-check]")?.click(); }));
+  document.querySelectorAll("[data-fold]").forEach((el) => (el.onclick = () => { fold[el.dataset.fold] = el.dataset.open !== "1"; render(); }));
   document.querySelectorAll("[data-read]").forEach((el) => (el.onclick = () => readSheet(p, el.dataset.read)));
   $("#readadd").onclick = () => readSheet(p);
   document.querySelectorAll("[data-cl-add]").forEach((el) => (el.onclick = () => checklistSheet(el.dataset.clAdd)));
@@ -145,7 +152,7 @@ function renderToday() {
     b.classList.toggle("on", !!p.dd.done[id]);
     setTimeout(render, 380); // チェックの動きを見せてから並べ直す
   }));
-  document.querySelectorAll("[data-item]").forEach((el) => (el.onclick = () => { if (Date.now() - dragEndedAt < 400) return; itemSheet(p, el.dataset.item); }));
+  document.querySelectorAll("[data-item]").forEach((el) => (el.onclick = (e) => { e.stopPropagation(); if (Date.now() - dragEndedAt < 400) return; itemSheet(p, el.dataset.item); }));
   $("#work-toggle")?.addEventListener("click", (e) => { e.stopPropagation(); workOpen = !workOpen; render(); });
   document.querySelectorAll("[data-fix]").forEach((el) => (el.onclick = () => {
     const [act, id] = el.dataset.fix.split(":");
@@ -188,19 +195,23 @@ function nowCard(p, now) {
     <p class="left">${clock(nx.start)}から ${dur(nx.end - nx.start)}</p></section>`;
 }
 
-// 睡眠(ヘルスケアの睡眠スケジュール風)
-function sleepCard(p, now) {
+// 睡眠は1行だけ(押すと設定)
+function sleepRow(p, now) {
   const tomorrow = addDays(p.date, 1);
   const toWind = now === null ? null : p.windDown - now;
   const note = toWind !== null && toWind > 0 && toWind <= 180 ? `寝る準備まであと${dur(toWind)}`
     : now !== null && now >= p.windDown && now < p.bed ? "寝る準備の時間です" : `寝る準備 ${clock(p.windDown)}から`;
-  return `<button class="card sleep" id="sleep">
-    <div class="pair">
-      <div><span class="ic moon">${ICON.moon}</span><small>就寝</small><b>${clock(p.bed)}</b></div>
-      <div><span class="ic alarm">${ICON.alarm}</span><small>起床・${DOW[tomorrow.getDay()]}曜</small><b>${clock(wakeOf(tomorrow))}</b></div>
-    </div>
-    <p class="foot"><span>${note}</span><span>睡眠 ${dur(Math.round(S().sleepHours * 60))}</span></p>
-  </button>`;
+  return `<li><button class="row" id="sleep"><span class="ic moon">${ICON.moon}</span><span class="txt"><b>就寝 ${clock(p.bed)}・起床 ${clock(wakeOf(tomorrow))}</b><small>${note}</small></span>${ICON.chevron}</button></li>`;
+}
+
+// 画面の下に固定する追加ボタン(親指が届く位置)
+function fab(label, fn) {
+  let b = document.getElementById("addtask");
+  if (!label) { if (b) b.hidden = true; return; }
+  if (!b) { b = document.createElement("button"); b.id = "addtask"; b.className = "fab"; b.innerHTML = ICON.plus; document.body.appendChild(b); }
+  b.hidden = false;
+  b.setAttribute("aria-label", label);
+  b.onclick = fn;
 }
 
 function conflictCard(p) {
@@ -219,19 +230,25 @@ function conflictCard(p) {
 // 予定のリスト(リマインダー風)。支度・通勤・食事は逆算にだけ使い、ここには出さない
 function listRows(p, now) {
   const rows = p.items.filter((i) => ["routine", "rest", "cal", "work"].includes(i.kind));
-  if (!rows.length) return `<li class="empty">予定はありません</li>`;
-  return rows.map((i) => {
+  if (!rows.length) return `<ul class="group list"><li class="empty">予定はありません</li></ul>`;
+  const row = (i) => {
     const cur = now !== null && i.start <= now && now < i.end;
     const meta = i.kind === "work" ? `${clock(i.start)}–${clock(i.end)}`
       : i.kind === "cal" ? `${clock(i.start)}–${clock(i.end)}・Googleカレンダー`
       : `${clock(i.start)}・${dur(i.end - i.start)}${i.carried ? "・持ち越し" : ""}`;
     const over = p.conflicts.some((c) => c.item.id === i.id);
-    return `<li class="row item ${i.done ? "done" : ""} ${cur ? "cur" : ""} ${i.kind}" style="--rc:${tint(i)}" ${checkable(i) || i.kind === "cal" ? `data-item="${i.id}"` : ""}>
+    const tap = checkable(i) ? "data-tap" : i.kind === "cal" ? `data-item="${i.id}"` : "";
+    return `<li class="row item ${i.done ? "done" : ""} ${cur ? "cur" : ""} ${i.kind}" style="--rc:${tint(i)}" ${tap}>
       ${checkable(i) ? `<button class="check ${i.done ? "on" : ""}" data-check="${i.id}" aria-label="${i.done ? "未完了に戻す" : "できた"}"></button>` : `<span class="dot"></span>`}
       <span class="txt"><b>${esc(i.name)}</b><small>${meta}${over ? `<em>重なり</em>` : ""}</small></span>
-      ${checkable(i) || i.kind === "cal" ? ICON.chevron : ""}
+      ${checkable(i) ? `<button class="more" data-item="${i.id}" aria-label="詳細">${ICON.chevron}</button>` : i.kind === "cal" ? ICON.chevron : ""}
     </li>`;
-  }).join("");
+  };
+  const doneRows = rows.filter((i) => i.done);
+  const open = rows.filter((i) => !i.done);
+  return `<ul class="group list">${open.length ? open.map(row).join("") : `<li class="empty">ぜんぶ終わりました</li>`}
+    ${doneRows.length ? `<li><button class="row fold-head" data-fold="done" data-open="${fold.done ? 1 : 0}"><span class="txt"><small>終わった予定 ${doneRows.length}件</small></span><span class="fold-ic ${fold.done ? "open" : ""}">${ICON.chevron}</span></button></li>` : ""}
+    ${doneRows.map((i) => row(i).replace('<li class="row item', `<li ${fold.done ? "" : "hidden"} class="row item`)).join("")}</ul>`;
 }
 
 // ---- 予定の詳細パネル ----
@@ -265,9 +282,11 @@ function itemSheet(p, id) {
 // 読書メモ: 読んで身についたこと(1日に何件でも)
 function readsBlock(p) {
   const list = p.dd.reads;
-  return `<p class="sec">読書メモ${list.length ? `<small class="cl-sub">${list.length}件</small>` : ""}</p>
-    <ul class="group">${list.map((r) => `<li><button class="row" data-read="${r.id}"><span class="ic book">${ICON.book}</span><span class="txt"><b>${esc(r.learned)}</b><small>${r.book ? `『${esc(r.book)}』` : "本の名前なし"}${r.action ? ` ・ 試す：${esc(r.action)}` : ""}</small></span>${ICON.chevron}</button></li>`).join("")}
-      <li><button class="row add" id="readadd"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>読んで身についたことを書く</b></span></button></li>
+  const open = fold.reads;
+  return `<ul class="group">
+      <li><button class="row fold-head" data-fold="reads" data-open="${open ? 1 : 0}"><span class="ic book">${ICON.book}</span><span class="txt"><b>読書メモ</b>${list.length ? `<small>${list.length}件</small>` : ""}</span><span class="fold-ic ${open ? "open" : ""}">${ICON.chevron}</span></button></li>
+      ${list.map((r) => `<li ${open ? "" : "hidden"}><button class="row" data-read="${r.id}"><span class="ic book">${ICON.book}</span><span class="txt"><b>${esc(r.learned)}</b><small>${r.book ? `『${esc(r.book)}』` : "本の名前なし"}${r.action ? ` ・ 試す：${esc(r.action)}` : ""}</small></span>${ICON.chevron}</button></li>`).join("")}
+      <li ${open ? "" : "hidden"}><button class="row add" id="readadd"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>読んで身についたことを書く</b></span></button></li>
     </ul>`;
 }
 function recentBooks() {
@@ -298,6 +317,7 @@ function readSheet(p, id) {
         const at = dd.reads.findIndex((r) => r.id === id);
         if (at >= 0) dd.reads[at] = { id, ...v }; else dd.reads.push({ id: `rd${Date.now()}`, ...v });
         if (!save()) return render();
+        fold.reads = true; // 書いたメモが見えるように開く
       }
       closeSheet();
       render();
@@ -439,7 +459,11 @@ function runTimer(p, kind) {
   tick = setInterval(update, 250);
 }
 let timerRunning = false;
-function checklist(p, kind) {
+function clDone(p, kind) {
+  const items = clFor(p, kind);
+  return items.length > 0 && items.every((i) => p.dd.chk[i.id]);
+}
+function checklist(p, kind, open = true) {
   const c = CL[kind];
   const all0 = state.checklists[kind];
   const items = clFor(p, kind);
@@ -449,13 +473,15 @@ function checklist(p, kind) {
   const all = items.length > 0 && done === items.length;
   const total = items.reduce((s, i) => s + (i.min || 0), 0);
   const left = items.filter((i) => !p.dd.chk[i.id]);
-  return `<p class="sec cl-title"><span>${c.title}<small>${sub}${total ? `・合計${dur(total)}` : ""}</small></span><span class="cl-count ${all ? "all" : ""}">${items.length ? (all ? "✓ 完了" : `${done}/${items.length}`) : ""}</span></p>
-    <ul class="group">${left.length && dayKey(p.date) === dayKey(logicalNow().date) ? `<li><button class="row cl-start" data-cl-start="${kind}" style="--rc:${c.color}"><span class="play">▶</span><span class="txt"><b>スタート</b><small>残り${left.length}つを順番にタイマーで</small></span></button></li>` : ""}
-      ${items.map((i) => `<li class="row item ${p.dd.chk[i.id] ? "done" : ""}" style="--rc:${c.color}" data-cl-edit="${kind}:${i.id}">
+  const h = open ? "" : "hidden";
+  return `<ul class="group cl ${open ? "" : "closed"}">
+      <li><button class="row fold-head cl-title" data-fold="${kind}" data-open="${open ? 1 : 0}"><span class="cdot big" style="--rc:${c.color}"></span><span class="txt"><b>${c.title}</b><small>${sub}${total ? `・合計${dur(total)}` : ""}</small></span><span class="cl-count ${all ? "all" : ""}">${items.length ? (all ? "✓ 完了" : `${done}/${items.length}`) : ""}</span><span class="fold-ic ${open ? "open" : ""}">${ICON.chevron}</span></button></li>
+      ${left.length && dayKey(p.date) === dayKey(logicalNow().date) ? `<li ${h}><button class="row cl-start" data-cl-start="${kind}" style="--rc:${c.color}"><span class="play">▶</span><span class="txt"><b>スタート</b><small>残り${left.length}つを順番にタイマーで</small></span></button></li>` : ""}
+      ${items.map((i) => `<li ${h} class="row item ${p.dd.chk[i.id] ? "done" : ""}" style="--rc:${c.color}" data-tap>
         <button class="check ${p.dd.chk[i.id] ? "on" : ""}" data-cl-check="${i.id}" aria-label="${p.dd.chk[i.id] ? "未完了に戻す" : "できた"}"></button>
-        <span class="txt"><b>${esc(i.name)}</b>${i.min || i.on ? `<small>${[i.min ? `${i.min}分` : "", i.on === "work" ? "仕事の日" : i.on === "off" ? "休みの日" : ""].filter(Boolean).join("・")}</small>` : ""}</span>${ICON.chevron}</li>`).join("")}
-      ${hidden ? `<li class="cl-hidden">${p.work ? "休みの日" : "仕事の日"}だけの項目 ${hidden}つは、今日は出していません</li>` : ""}
-      <li><button class="row add" data-cl-add="${kind}"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>${c.title}に追加</b></span></button></li>
+        <span class="txt"><b>${esc(i.name)}</b>${i.min || i.on ? `<small>${[i.min ? `${i.min}分` : "", i.on === "work" ? "仕事の日" : i.on === "off" ? "休みの日" : ""].filter(Boolean).join("・")}</small>` : ""}</span><button class="more" data-cl-edit="${kind}:${i.id}" aria-label="編集">${ICON.chevron}</button></li>`).join("")}
+      ${hidden ? `<li ${h} class="cl-hidden">${p.work ? "休みの日" : "仕事の日"}だけの項目 ${hidden}つは、今日は出していません</li>` : ""}
+      <li ${h}><button class="row add" data-cl-add="${kind}"><span class="ic plus">${ICON.plus}</span><span class="txt"><b>${c.title}に追加</b></span></button></li>
     </ul>`;
 }
 function checklistSheet(kind, id) {
@@ -522,15 +548,20 @@ function taskSheet(p, t) {
   const draft = t ? { ...t, start: hm2(toMin(t.start)), min: Math.max(5, t.min - (p.dd.shorten[t.id] || 0)) } : { id: `t${Date.now()}`, name: "", start: p.dd.tasks.length ? p.dd.tasks[p.dd.tasks.length - 1].start : hm2(Math.min(Math.max(p.windDown - 90, p.wake + 60), 1380)), min: 30 };
   const now = logicalNow();
   if (!t && dayKey(p.date) === dayKey(now.date)) draft.start = hm2(Math.ceil((now.min + 10) / 5) * 5);
+  let more = !!t; // 新しく追加するときは名前だけ。時刻と長さは「変える」で開く
   const draw = () => {
     openSheet(sheetHead(t ? "タスクを編集" : `${dayKey(p.date) === dayKey(logicalNow().date) ? "今日" : `${p.date.getMonth() + 1}/${p.date.getDate()}`}のタスクを追加`) + `
       <input class="name-input" id="tname" placeholder="やること（例：歯医者）" maxlength="40">
+      ${more ? "" : `<button class="row act when" data-act="more"><span class="txt"><b>${draft.start}から・${draft.min < 60 ? `${draft.min}分` : dur(draft.min)}</b></span><span class="blue">変える</span></button>`}
+      <div ${more ? "" : "hidden"}>
       <input type="time" class="big-time" id="ttime" value="${draft.start}">
       <p class="sheet-label">長さ</p>
       <div class="chips">${[10, 15, 30, 45, 60, 90, 120].map((m) => `<button class="chip ${draft.min === m ? "on" : ""}" data-min="${m}">${m < 60 ? `${m}分` : m === 90 ? "1時間半" : `${m / 60}時間`}</button>`).join("")}</div>
+      </div>
       <p class="sheet-note">この日だけのタスクです。毎日・毎週のルーティーンは「設定」から追加します。</p>`, (act) => {
       draft.name = $("#tname").value.trim() || draft.name;
       draft.start = $("#ttime").value || draft.start;
+      if (act === "more") { more = true; return draw(); }
       if (act === "right") {
         if (!draft.name) return notice("やることを入れてください");
         if (!/^\d{1,2}:\d{2}$/.test(draft.start)) return notice("時刻を入れてください");
@@ -545,6 +576,7 @@ function taskSheet(p, t) {
       render();
     });
     $("#tname").value = draft.name;
+    if (!t && !draft.name) $("#tname").focus();
     document.querySelectorAll("#sheet [data-min]").forEach((b) => (b.onclick = () => { draft.name = $("#tname").value; draft.start = $("#ttime").value || draft.start; draft.min = +b.dataset.min; draw(); }));
   };
   draw();
