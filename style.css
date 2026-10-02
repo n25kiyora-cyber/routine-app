@@ -366,3 +366,8 @@ textarea { resize: none; }
 
 .cl-hidden { padding: 10px 16px; font-size: 12px; color: var(--sub); border-top: 0.5px solid var(--sep); }
 .presets button.on { background: var(--blue); color: #fff; }
+
+body.no-scroll { overflow: hidden; touch-action: none; }
+.nudge { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; }
+.nudge button { flex: 0 0 auto; padding: 10px 18px; border-radius: 10px; background: var(--fill); color: var(--blue); font-weight: 600; font-variant-numeric: tabular-nums; }
+.nudge span { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }

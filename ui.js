@@ -248,13 +248,14 @@ function itemSheet(p, id) {
     <p class="sheet-meta">${clock(i.start)}–${clock(i.end)}（${dur(i.end - i.start)}）</p>
     <ul class="group in-sheet">
       <li><button class="row act" data-act="done"><span class="check ${done ? "on" : ""}" style="--rc:${tint(i)}"></span><b>${done ? "未完了に戻す" : "できた"}</b></button></li>
-      ${i.kind === "routine" ? `<li><button class="row act" data-act="move"><b>時間を変える</b><span class="val">${clock(i.start)}</span></button></li>` : ""}
+      ${i.kind === "routine" ? `<li><div class="nudge"><button data-act="earlier">−15分</button><span>${clock(i.start)}〜</span><button data-act="later">＋15分</button></div></li><li><button class="row act" data-act="move"><b>時間を変える</b><span class="val">${clock(i.start)}</span></button></li>` : ""}
       ${i.task ? `<li><button class="row act" data-act="edit"><b>名前・長さを編集</b></button></li>` : ""}
       ${canShorten ? `<li><button class="row act" data-act="shorten"><b>15分短くする</b></button></li>` : ""}
       ${i.kind === "routine" ? `<li><button class="row act" data-act="carry"><b>明日に回す</b></button></li><li><button class="row act red" data-act="skip"><b>${i.task ? "このタスクを削除" : "今日は見送る"}</b></button></li>` : ""}
     </ul>`, (act) => {
     if (act === "right") return closeSheet();
     if (act === "move") return timeSheet(p, i);
+    if (act === "earlier" || act === "later") { setStart(p, i, hm2(i.start + (act === "earlier" ? -15 : 15))); closeSheet(); render(); return itemSheet(planOf(p.date), id); }
     if (act === "edit") return taskSheet(p, p.dd.tasks.find((t) => t.id === id));
     if (act === "skip" && i.task && !confirmTwice(`del-${id}`)) return;
     applyAction(p, id, act);
@@ -763,38 +764,51 @@ function enableDrag(p) {
   if (!lane || !tlGeom) return;
   const { from, to, y } = tlGeom;
   const minAt = (px) => { let best = from, d = Infinity; for (let t = from; t <= to; t++) { const v = Math.abs(y(t) - px); if (v < d) { d = v; best = t; } } return best; };
-  let dragging = null;
-  lane.addEventListener("touchmove", (e) => { if (dragging && dragging.on) e.preventDefault(); }, { passive: false });
+  // iPhoneでは指の操作(touch)で扱う。長押しで掴んだあとはスクロールを止めて、指に合わせて動かす
   lane.querySelectorAll("[data-drag]").forEach((el) => {
-    el.style.touchAction = "pan-y";
+    let st = null;
+    const begin = (clientY) => {
+      st = { on: false, startY: clientY, top0: parseFloat(el.style.top), start0: +el.dataset.start, t: +el.dataset.start, timer: null };
+      st.timer = setTimeout(() => { if (!st) return; st.on = true; el.classList.add("dragging"); document.body.classList.add("no-scroll"); }, 300);
+    };
+    const move = (clientY, e) => {
+      if (!st) return;
+      if (!st.on) { if (Math.abs(clientY - st.startY) > 10) cancel(); return; } // 長押し前に動いたら普通のスクロール
+      if (e && e.cancelable) e.preventDefault();
+      const dy = clientY - st.startY;
+      const top = Math.min(Math.max(st.top0 + dy, 0), parseFloat(lane.style.height) - 24);
+      el.style.top = top + "px";
+      st.t = Math.round(minAt(Math.min(Math.max(y(st.start0) + dy, 0), y(to))) / 5) * 5; // 重なりで下げて表示している分は足さない
+      const tt = el.querySelector(".t"); if (tt) tt.textContent = clock(st.t % 1440);
+    };
+    const finish = () => {
+      if (!st) return;
+      clearTimeout(st.timer);
+      const was = st.on, moved = st.on && st.t !== st.start0, t = st.t;
+      cleanup();
+      if (!was) return;
+      dragEndedAt = Date.now();
+      if (moved) {
+        const it = p.items.find((x) => x.id === el.dataset.drag);
+        if (it) { setStart(p, it, hm2(t)); notice(`${it.name}を ${clock(t % 1440)} に動かしました`); }
+      }
+      render();
+    };
+    const cancel = () => { if (st) clearTimeout(st.timer); cleanup(); };
+    const cleanup = () => { el.classList.remove("dragging"); document.body.classList.remove("no-scroll"); st = null; };
+    // 指(iPhone)
+    el.addEventListener("touchstart", (e) => { if (e.touches.length === 1) begin(e.touches[0].clientY); }, { passive: true });
+    el.addEventListener("touchmove", (e) => move(e.touches[0].clientY, e), { passive: false });
+    el.addEventListener("touchend", (e) => { if (st && st.on && e.cancelable) e.preventDefault(); finish(); }, { passive: false });
+    el.addEventListener("touchcancel", cancel);
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
+    // マウス(パソコン)
     el.addEventListener("pointerdown", (e) => {
-      if (e.button) return;
-      const startY = e.clientY, top0 = parseFloat(el.style.top), start0 = +el.dataset.start;
-      const st = { on: false, timer: null, startY, top0, start0, pid: e.pointerId, t: start0 };
-      dragging = st;
-      st.timer = setTimeout(() => { st.on = true; el.classList.add("dragging"); try { el.setPointerCapture(st.pid); } catch {} if (navigator.vibrate) navigator.vibrate(10); }, 350);
-      const move = (ev) => {
-        if (!st.on) { if (Math.abs(ev.clientY - st.startY) > 8) cancel(); return; }
-        const dy = ev.clientY - st.startY;
-        const top = Math.min(Math.max(st.top0 + dy, 0), parseFloat(lane.style.height) - 24);
-        el.style.top = top + "px";
-        st.t = Math.round(minAt(Math.min(Math.max(y(st.start0) + dy, 0), y(to))) / 5) * 5; // 重なりで下げて表示している分は足さない
-        const tt = el.querySelector(".t"); if (tt) tt.textContent = clock(st.t % 1440);
-      };
-      const cancel = () => { clearTimeout(st.timer); cleanup(); };
-      const up = () => {
-        clearTimeout(st.timer);
-        const moved = st.on && st.t !== st.start0;
-        if (st.on) dragEndedAt = Date.now();
-        cleanup();
-        if (moved) {
-          const it = p.items.find((x) => x.id === el.dataset.drag);
-          if (it) { setStart(p, it, hm2(st.t)); notice(`${it.name}を ${clock(st.t % 1440)} に動かしました`); }
-        }
-        if (st.on) render();
-      };
-      const cleanup = () => { el.classList.remove("dragging"); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", cancel); dragging = null; };
-      el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", cancel);
+      if (e.pointerType !== "mouse" || e.button) return;
+      begin(e.clientY);
+      const mm = (ev) => move(ev.clientY, ev);
+      const mu = () => { window.removeEventListener("pointermove", mm); window.removeEventListener("pointerup", mu); finish(); };
+      window.addEventListener("pointermove", mm); window.addEventListener("pointerup", mu);
     });
   });
 }
