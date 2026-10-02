@@ -126,6 +126,7 @@ function sanitize(d) {
       // 読書メモ [{id, book, learned, action}]
       reads: Array.isArray(day.reads) ? day.reads.filter((r) => r && typeof r.id === "string" && typeof r.learned === "string" && r.learned.trim()).map((r) => ({ id: r.id, book: typeof r.book === "string" ? r.book.slice(0, 80) : "", learned: r.learned.slice(0, 2000), action: typeof r.action === "string" ? r.action.slice(0, 500) : "" })) : [],
       moved: Object.fromEntries(Object.entries(obj(day.moved)).filter(([, v]) => validHM(v))),
+      rest: day.rest === true, // お休みの日(ルーティーンを出さない)
     };
   }
   const cl = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x.id === "string" && typeof x.name === "string" && x.name.trim()).slice(0, 30).map((x) => ({ id: x.id, name: x.name.slice(0, 40), ...(Number.isFinite(x.min) && x.min > 0 && x.min <= 180 ? { min: Math.round(x.min) } : {}), ...(x.on === "work" || x.on === "off" ? { on: x.on } : {}) })) : []); // min: タイマー用の分数(任意)、on: 仕事の日だけ/休みの日だけ
@@ -227,20 +228,12 @@ function planOf(date) {
   const items = [];
   const add = (o) => items.push({ done: !!dd.done[o.id], ...o });
 
-  if (w) {
-    const ws = toMin(w.start), we = toMin(w.end);
-    add({ id: "prep", kind: "life", name: "支度", start: wake, end: wake + st.prepMin });
-    add({ id: "commute-am", kind: "life", name: "通勤", start: wake + st.prepMin, end: ws });
-    add({ id: "work", kind: "work", name: "勤務", start: ws, end: we });
-    add({ id: "commute-pm", kind: "life", name: "帰宅", start: we, end: we + st.commuteMin });
-    add({ id: "dinner", kind: "life", name: "食事・入浴", start: we + st.commuteMin, end: we + st.commuteMin + st.dinnerMin });
-  } else {
-    const d0 = toMin(st.holidayDinner);
-    add({ id: "dinner", kind: "life", name: "食事・入浴", start: d0, end: d0 + st.dinnerMin });
-  }
+  // 支度・通勤・食事などの枠は出さない(起床の逆算にだけ使う)
+  const home = w ? toMin(w.end) + st.commuteMin : null; // 帰宅する時刻
+  if (w) add({ id: "work", kind: "work", name: "勤務", start: toMin(w.start), end: toMin(w.end) });
   for (const r of st.routines) {
     const slot = r.slots[dow];
-    if (!slot || dd.skip[r.id]) continue;
+    if (!slot || dd.skip[r.id] || dd.rest) continue;
     const min = Math.max(5, slot.min - (dd.shorten[r.id] || 0));
     let start = toMin(dd.moved[r.id] || slot.start);
     if (dd.moved[r.id] ? start < NIGHT_EDGE : start < wake - 120) start += 1440; // 0時過ぎの予定はその夜のもの(動かした時刻は4時前だけ深夜扱い)
@@ -268,10 +261,10 @@ function planOf(date) {
   // 前の日から持ち越した予定: 夜の空いている時間に置く
   dd.carry.forEach((c, ci) => {
     const id = `carry-${ci}`;
-    if (dd.skip[id]) return;
+    if (dd.skip[id] || dd.rest) return;
     const min = Math.max(5, c.min - (dd.shorten[id] || 0));
-    const busy = items.filter((i) => i.kind !== "life" || i.id === "dinner").sort((a, b) => a.start - b.start);
-    const earliest = Math.max(items.find((i) => i.id === "dinner")?.end ?? 1140, wake);
+    const busy = items.filter((i) => i.kind !== "life").sort((a, b) => a.start - b.start);
+    const earliest = Math.max(home ?? 1140, wake);
     let start = earliest;
     for (const b of busy) if (b.end > start && b.start < start + min) start = b.end;
     // 寝る準備までに入らなければ、寝る準備の直前に置く(はみ出しとして調整を促す)

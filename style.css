@@ -400,3 +400,11 @@ body.no-scroll { overflow: hidden; touch-action: none; }
 .row.act.when { background: var(--fill); border-radius: 12px; margin: 4px 0 8px; }
 .row .ic.moon { background: var(--c-indigo); }
 .group.cl .cl-title small { margin-left: 0; opacity: 1; }
+/* お休みの日 */
+.rest-pill { margin-left: auto; font-size: 14px; font-weight: 500; color: var(--c-indigo); background: color-mix(in srgb, var(--c-indigo) 12%, transparent); padding: 7px 14px; border-radius: 18px; }
+.daynav .rest-pill { width: auto; height: auto; display: inline-block; margin-left: auto; }
+.card.restday { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: color-mix(in srgb, var(--c-indigo) 14%, var(--card)); }
+.card.restday div { flex: 1; display: flex; flex-direction: column; }
+.card.restday b { font-size: 17px; }
+.card.restday small { font-size: 13px; color: var(--sub); margin-top: 2px; }
+.card.restday button { color: var(--blue); font-size: 15px; white-space: nowrap; }

@@ -94,7 +94,8 @@ function renderToday() {
   $("#view").innerHTML = `
     ${isToday ? "" : `<button class="backlink" id="back-today">${ICON.back}今日</button>`}
     <header class="lt"><h1>${title}</h1>
-      <div class="daynav"><button id="dprev" aria-label="前の日">${ICON.back}</button><p>${date.getMonth() + 1}月${date.getDate()}日 ${DOW_LONG[date.getDay()]}</p><button id="dnext" class="flip" aria-label="次の日">${ICON.back}</button></div></header>
+      <div class="daynav"><button id="dprev" aria-label="前の日">${ICON.back}</button><p>${date.getMonth() + 1}月${date.getDate()}日 ${DOW_LONG[date.getDay()]}</p><button id="dnext" class="flip" aria-label="次の日">${ICON.back}</button>${p.dd.rest ? "" : `<button class="rest-pill" id="rest">お休みにする</button>`}</div></header>
+    ${p.dd.rest ? `<section class="card restday"><div><b>${isToday ? "今日" : "この日"}はお休み</b><small>副業などのルーティーンは出していません。ゆっくりどうぞ。</small></div><button id="rest">元に戻す</button></section>` : ""}
     ${state.onboarded ? "" : `<button class="card banner" id="setup"><span>勤務と睡眠を設定すると、あなたの時刻で逆算されます</span><b>設定する</b></button>`}
     ${isToday ? nowCard(p, now) : ""}
     ${p.dd.must
@@ -121,6 +122,7 @@ function renderToday() {
   $("#dprev").onclick = () => shiftDay(-1);
   $("#dnext").onclick = () => shiftDay(1);
   $("#setup")?.addEventListener("click", () => onboarding(1));
+  $("#rest").onclick = () => { const dd = dayData(dayKey(date)); dd.rest = !dd.rest; if (!save()) return render(); notice(dd.rest ? "お休みにしました" : "元に戻しました"); render(); };
   $("#must").onclick = () => editText("今日いちばん大事なこと", "これだけはやる、を1つ", p.dd.must, (v) => (p.dd.must = v));
   $("#note").onclick = () => editText("今日できたこと", "小さなことでいい", p.dd.note, (v) => (p.dd.note = v));
   $("#sleep").onclick = () => sleepSheet();
@@ -760,7 +762,7 @@ function monthBlock(anchor) {
   for (const r of S().routines) {
     const cells = plans.map((p) => {
       const k = dayKey(p.date), planned = !!r.slots[p.date.getDay()];
-      if (!planned) return "off";
+      if (!planned || p.dd.rest) return "off";
       if (k > today) return "future";
       return p.dd.done[r.id] ? "done" : "miss";
     });
@@ -940,10 +942,8 @@ function renderSettings() {
       ${row("v-sleepHours", "睡眠時間", dur(Math.round(st.sleepHours * 60)))}
       ${row("v-commuteMin", "通勤（片道）", dur(st.commuteMin))}
       ${row("v-prepMin", "朝の支度", dur(st.prepMin))}
-      ${row("v-dinnerMin", "食事・入浴", dur(st.dinnerMin))}
       ${row("v-windDownMin", "寝る準備", dur(st.windDownMin))}
       ${row("v-holidayWake", "休みの日の起床", clock(toMin(st.holidayWake)))}
-      ${row("v-holidayDinner", "休みの日の夕食", clock(toMin(st.holidayDinner)))}
     </ul>
     <p class="foot-note">起床 ＝ 始業 − 通勤 − 支度、就寝 ＝ 翌朝の起床 − 睡眠 で計算します。</p>
     <p class="sec">ルーティーン</p>
@@ -968,7 +968,7 @@ function renderSettings() {
     <p class="foot-note">データはこのiPhoneの中だけにあります。週に1回、書き出しておくと安心です。</p>`;
 
   $("#set-work").onclick = workSheet;
-  ["sleepHours", "commuteMin", "prepMin", "dinnerMin", "windDownMin", "holidayWake", "holidayDinner"].forEach((k) => ($(`#v-${k}`).onclick = () => valueSheet(k)));
+  ["sleepHours", "commuteMin", "prepMin", "windDownMin", "holidayWake"].forEach((k) => ($(`#v-${k}`).onclick = () => valueSheet(k)));
   document.querySelectorAll("[data-r]").forEach((el) => (el.onclick = () => routineSheet(+el.dataset.r)));
   $("#radd").onclick = templateSheet;
   $("#set-cal").onclick = calSheet;
